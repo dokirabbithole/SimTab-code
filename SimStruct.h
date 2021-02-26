@@ -90,16 +90,15 @@ class SimStruct{
     int* U[2];
     int* C[1];
     int* UC[1];
-    int* Parent; // 
-    //double *reserve;
+    // int* Parent; // 
     double *residue;
     double *newReserve;
     double *newResidue;
     bool* isInArray;
 
     // for estimation of D
-    unordered_map<int, long> hitMap;
-    unordered_map<int, long> totalMap;
+    unordered_map<int, double> hitMap;
+    unordered_map<int, double> totalMap;
 
 	/* for prefiltering */
 	vector<pair<int, double> > estMean;
@@ -108,35 +107,28 @@ class SimStruct{
 	double *ans2;
 	int *ansIdx;
 	int curIdx;
-    //double* tempAnswer;
-    //double* tempDeterAnswer;
-    //int* tempAnsIdx;
-    //int* tempDeterAnsIdx;
-    //int tempCurIdx, tempDeterCurIdx;
-    unordered_map<int, double> largePartAnswer, smallPartAnswer;
 
 	double eps_p;
 	int totalSample; 
 	// time
 	double t_pref, t_single;
 
-    //unordered_map<int, double> dValue;
-
     unordered_map<int, vector<int> > sameInNbrMap;
+    //            indegree,          armId,     
+    unordered_map<int, unordered_map<int, vector<int> > > sameInNbrMap2;
+    bool* exist_cnode_nbr;
 
     /* data structures for MAB */
     //            query/cand   ->    level              -> w  -> \pi_l(s,w), r_l(s,w)
     unordered_map<int, unordered_map<int, unordered_map<int, double> > > adaptReserveMap, adaptResidueMap;
-    unordered_map<int, double> part1Map, part2Map, part3Map;
+    unordered_map<int, unordered_map<int, double> > ppr;
+    unordered_map<int, double> part1Map, part2Map, part3Map, part4Map, cntMap;
 
     vector<int> candList; // ansIdx + curIdx
-    // unordered_map<int, double> mean; // answer
-    // unordered_map<int, double> sum_Xi2; // ans2
     unordered_map<int, long> cntMABSample;
     long totalMABSample;
     unordered_map<int, int> budgetMap;
     unordered_map<int, double> rsumMap;
-    // unordered_map<int, Alias> aliasMap;
     vector<Alias> aliasMap;
     unordered_map<int, int> nodeToAliasPos;
     double adaptPushTime, adaptDeterQueryTime, adaptRandQueryTime;
@@ -164,8 +156,7 @@ class SimStruct{
         U[1] = new int[vert];
         C[0] = new int[vert];
         UC[0] = new int[vert];
-        Parent = new int[vert]; //
-        //reserve = new double[vert];
+        //Parent = new int[vert]; //
         residue = new double[vert];
         newReserve = new double[vert];
         newResidue = new double[vert];
@@ -178,30 +169,24 @@ class SimStruct{
             U[1][i] = 0;
             C[0][i] = 0;
             UC[0][i] = -1;
-            Parent[i] = -1;
+            //Parent[i] = -1;
         }
         srand(unsigned(time(0)));
         
 		// initialization
 		answer = new double[vert];
 		ans2 = new double[vert];
-        //tempAnswer = new double[vert];
-        //tempDeterAnswer = new double[vert];
         ansIdx = new int[vert];
-        //tempAnsIdx = new int[vert];
-        //tempDeterAnsIdx = new int[vert];
         for(int i = 0; i < vert; i++){
             answer[i] = 0;
 			ans2[i] = 0;
             isInArray[i] = false;
-
-            //tempAnswer[i] = 0;
-            //tempDeterAnswer[i] = 0;
         }		
 		curIdx = 0;
-        //tempCurIdx = 0;
-        //tempDeterCurIdx = 0;
         cout << "====init done!====" << endl;
+        exist_cnode_nbr = new bool[vert];
+        for (int i = 0; i < vert; i++)
+            exist_cnode_nbr[i] = false;
     }
     ~SimStruct() {
         delete[] H[0];
@@ -210,8 +195,7 @@ class SimStruct{
         delete[] U[1];
         delete[] C[0];
         delete[] UC[0];
-        delete[] Parent; //
-        //delete[] reserve;
+        //delete[] Parent; 
         delete[] residue;
         delete[] newReserve;
         delete[] newResidue;
@@ -220,10 +204,8 @@ class SimStruct{
 		delete[] answer;
 		delete[] ans2;
 		delete[] ansIdx;
-        //delete[] tempAnswer;
-        //delete[] tempAnsIdx;
-        //delete[] tempDeterAnswer;
-        //delete[] tempDeterAnsIdx;
+
+        delete[] exist_cnode_nbr;
     }
 
     //Estimate pi(u,w) using method FORA    
@@ -329,10 +311,12 @@ class SimStruct{
         int numFORAItems = 0, numFORAItemsPruned = 0;
         for (auto& c : answer) {
             for (auto& d : c.second) {
-                realAnswer[c.first].push_back(pair<int, double>(d.first, d.second));
+                //realAnswer[c.first].push_back(pair<int, double>(d.first, d.second));
                 numFORAItems++;
-                if (d.second > forward_rmax)
+                if (d.second > 1.0e-6) {
                     numFORAItemsPruned++;
+                    realAnswer[c.first].push_back(pair<int, double>(d.first, d.second));
+                }
             }
         }
         cout << "back_nr = " << back_nr << " , numFORAItems = " << numFORAItems << " , numFORAItemsPruned = " << numFORAItemsPruned << endl;
@@ -483,34 +467,6 @@ class SimStruct{
         }
         return tempCount;
     }
-
-    /*
-    int sampleD2(int nodeId, int walk_num) {
-        int tempCount = 0;
-        for (int i = 0; i < walk_num; i++) {
-            int u_newNode = nodeId, v_newNode = nodeId, u_nextNode, v_nextNode;
-            while (R.drand() < C_value) {
-                int length = g.getInSize(u_newNode);
-                if (length == 0)
-                    break;
-                int r = R.generateRandom() % length;
-                u_nextNode = g.getInVert(u_newNode, r);
-                length = g.getInSize(v_newNode);
-                if (length == 0)
-                    break;
-                r = R.generateRandom() % length;
-                v_nextNode = g.getInVert(v_newNode, r);
-                if (u_nextNode == v_nextNode) {
-                    tempCount++;
-                    break;
-                }
-                u_newNode = u_nextNode;
-                v_newNode = v_nextNode;
-            }
-        }
-        return tempCount;
-    }
-    */
     
     // Calculating pi(v,w)
     void randomProbe(int w, int targetLevel, double dw, double* answer) {
@@ -592,197 +548,7 @@ class SimStruct{
         }
     }
 
-    void randomProbe(int w, int targetLevel, double dw, unordered_map<int, double>& partialAnswer) {
-        //cout << "w = " << w << " , targetLevel = " << targetLevel << endl;
-        partialAnswer.clear();
-        double sqrtSqrtC = sqrt(sqrtC);
-        double increment = pow(sqrtSqrtC, targetLevel) * (1 - sqrtC);
-        unordered_map<int, double> walkMap;
-
-        int ind = 0;
-        H[ind][w] = 1;
-        int Ucount = 1;
-        int Ucount1 = 0;
-        int UCcount = 0;
-        U[0][0] = w;
-        for (int i = 0; i < targetLevel; i++) {
-            //cout << "level (i) = " << i << endl;
-            for (int j = 0; j < Ucount; j++) {
-                int tempNode = U[ind][j];
-                int outCount = g.getOutSize(tempNode);
-                for (int k = 0; k < outCount; k++) {
-                    int newNode = g.getOutVert(tempNode, k);
-                    if (C[0][newNode] == 0) {
-                        C[0][newNode] = 1;
-                        UC[0][UCcount] = newNode;
-                        UCcount++;
-                    }
-                    else {
-                        C[0][newNode]++;
-                    }
-                }
-            }
-
-            for (int j = 0; j < UCcount; j++) {
-                int tempNode = UC[0][j];
-                if (R.drand() < C[0][tempNode] * sqrtSqrtC / (double)g.getInSize(tempNode)) {
-                    H[1 - ind][tempNode] = 1;
-                    U[1 - ind][Ucount1] = tempNode;
-                    Ucount1++;
-                    //cout << tempNode << endl;
-                }
-                C[0][UC[0][j]] = 0;
-                UC[0][j] = -1;
-            }
-            for (int j = 0; j < Ucount; j++) {
-                H[ind][U[ind][j]] = 0;
-                U[ind][j] = -1;
-            }
-            Ucount = Ucount1;
-            Ucount1 = 0;
-            UCcount = 0;
-            ind = 1 - ind;
-            if (Ucount == 0)
-                break;
-        }
-
-        for (int i = 0; i < Ucount; i++) {
-            int tempNode = U[ind][i];
-            if (walkMap.find(tempNode) == walkMap.end()) {
-                walkMap[tempNode] = H[ind][tempNode] * increment;
-            }
-            else {
-                walkMap[tempNode] += H[ind][tempNode] * increment;
-            }
-            U[ind][i] = 0;
-            H[ind][tempNode] = 0;
-        }
-        Ucount = 0;
-
-        for (auto& key : walkMap) {
-            int tempNode = key.first;
-            double tempSim = key.second;
-            double score = dw * tempSim / (1 - sqrtC) / (1 - sqrtC);
-            partialAnswer[tempNode] = score;
-        }
-    }
-
-    //Calculating pi(v,w)
-    void randomProbeOneHopDeter(int w, int targetLevel, double dw, double* answer) {
-        double sqrtSqrtC = sqrt(sqrtC);
-        //double increment = pow(sqrtSqrtC, targetLevel) * (1 - sqrtC);
-        unordered_map<int, double> walkMap;
-        //cout << "w = " << w << " , targetLevel = " << targetLevel << endl;
-        int ind = 0;
-        H[ind][w] = (1 - sqrtC);
-        int Ucount = 1;
-        int Ucount1 = 0;
-        int UCcount = 0;
-        U[0][0] = w;
-        for (int i = 0; i < targetLevel; i++) {
-            //cout << "level (i) = " << i << endl;
-            if (i < 1) {
-                //cout << "deter" << endl;
-                for (int j = 0; j < Ucount; j++) {
-                    int tempNode = U[ind][j];
-                    int outCount = g.getOutSize(tempNode);
-                    for (int k = 0; k < outCount; k++) {
-                        int newNode = g.getOutVert(tempNode, k);
-                        //cout << "newNode = " << newNode << endl;
-                        if (H[1 - ind][newNode] == 0) {
-                            U[1 - ind][Ucount1] = newNode;
-                            Ucount1++;
-                        }
-                        H[1 - ind][newNode] += sqrtC * H[ind][tempNode] / g.getInSize(newNode);
-                    }
-                }
-                for (int j = 0; j < Ucount; j++) {
-                    H[ind][U[ind][j]] = 0;
-                    U[ind][j] = -1;
-                }
-                Ucount = Ucount1;
-                Ucount1 = 0;
-                UCcount = 0;
-                ind = 1 - ind;
-                if (Ucount == 0)
-                    break;
-            }
-            else {
-                //cout << "rand" << endl;
-                for (int j = 0; j < Ucount; j++) {
-                    int tempNode = U[ind][j];
-                    int outCount = g.getOutSize(tempNode);
-                    for (int k = 0; k < outCount; k++) {
-                        int newNode = g.getOutVert(tempNode, k);
-                        if (C[0][newNode] == 0) {
-                            C[0][newNode] = 1;
-                            Parent[newNode] = tempNode;
-                            UC[0][UCcount] = newNode;
-                            UCcount++;
-                        }
-                        else {
-                            C[0][newNode]++;
-                            if(R.drand() < 1.0 / C[0][newNode])
-                                Parent[newNode] = tempNode;
-                        }
-                    }
-                }
-
-                for (int j = 0; j < UCcount; j++) {
-                    int tempNode = UC[0][j];
-                    if (R.drand() < C[0][tempNode] * sqrtSqrtC / (double)g.getInSize(tempNode)) {
-                        //test
-                        if (Parent[tempNode] == -1) {
-                            cout << "error: tempNode = " << tempNode << " , Parent[tempNode] = " << Parent[tempNode] << endl;
-                            exit(0);
-                        } // 
-                        //cout << "tempNode = " << tempNode << " , Parent[tempNode] = " << Parent[tempNode] << endl;
-                        H[1 - ind][tempNode] = H[ind][Parent[tempNode]] * sqrtSqrtC;
-                        U[1 - ind][Ucount1] = tempNode;
-                        Ucount1++;
-                    }
-                    Parent[tempNode] = -1;
-                    C[0][UC[0][j]] = 0;
-                    UC[0][j] = -1;
-                }
-                for (int j = 0; j < Ucount; j++) {
-                    H[ind][U[ind][j]] = 0;
-                    U[ind][j] = -1;
-                }
-                Ucount = Ucount1;
-                Ucount1 = 0;
-                UCcount = 0;
-                ind = 1 - ind;
-                if (Ucount == 0)
-                    break;
-            } // end else           
-        }
-
-        for (int i = 0; i < Ucount; i++) {
-            int tempNode = U[ind][i];
-            if (walkMap.find(tempNode) == walkMap.end()) {
-                walkMap[tempNode] = H[ind][tempNode];
-            }
-            else {
-                walkMap[tempNode] += H[ind][tempNode];
-            }
-            U[ind][i] = 0;
-            H[ind][tempNode] = 0;
-        }
-        Ucount = 0;
-
-        for (auto& key : walkMap) {
-            int tempNode = key.first;
-            double tempSim = key.second;
-            if (answer[tempNode] == 0) {
-                ansIdx[curIdx] = tempNode;
-                curIdx++;
-            }
-            double score = dw * tempSim / (1 - sqrtC) / (1 - sqrtC);
-            answer[tempNode] += score;
-            ans2[tempNode] += score * score;
-        }
-    }
+    
    
     //Calculating pi(v,w) using sequential probe method
     void getRandomBackList(int w, int targetLevel, int backWalkNum, double forwardSim, double dw, double* answer) {
@@ -911,66 +677,6 @@ class SimStruct{
         }
     }
        
-    void getRandomBackList_PRSim(int w, int targetLevel, int backWalkNum, double forwardSim, double dw, unordered_map<int, double>& largePartAnswer) {
-        unordered_map<int, double> walkMap;
-        double increment = 1 / (double)backWalkNum * pow(sqrtC, targetLevel) * (1 - sqrtC);
-        for (int j = 0; j < backWalkNum; j++) {
-            int ind = 0;
-            H[ind][w] = 1;
-            int Ucount = 1;
-            int Ucount1 = 0;
-            int UCcount = 0;
-            U[0][0] = w;
-            for (int i = 0; i < targetLevel; i++) {
-                for (int j = 0; j < Ucount; j++) {
-                    int tempNode = U[ind][j];
-                    int outCount = g.getOutSize(tempNode);
-                    double tempMaxInSize = 1 / R.drand();
-                    for (int k = 0; k < outCount; k++) {
-                        int newNode = g.getOutVert(tempNode, k);
-                        if (g.getInSize(newNode) > tempMaxInSize) {
-                            break;
-                        }
-                        if (H[1 - ind][newNode] == 0) {
-                            U[1 - ind][Ucount1++] = newNode;
-                        }
-                        H[1 - ind][newNode] += H[ind][tempNode];
-                    }
-                }
-                for (int j = 0; j < Ucount; j++) {
-                    H[ind][U[ind][j]] = 0;
-                    U[ind][j] = 0;
-                }
-                Ucount = Ucount1;
-                Ucount1 = 0;
-                ind = 1 - ind;
-                if (Ucount == 0)
-                    break;
-            }
-            for (int i = 0; i < Ucount; i++) {
-                int tempNode = U[ind][i];
-                if (walkMap.find(tempNode) == walkMap.end()) {
-                    walkMap[tempNode] = H[ind][tempNode] * increment;
-                }
-                else {
-                    walkMap[tempNode] += H[ind][tempNode] * increment;
-                }
-                U[ind][i] = 0;
-                H[ind][tempNode] = 0;
-            }
-            Ucount = 0;
-        }
-        for (auto& key : walkMap) {
-            int tempNode = key.first;
-            double tempSim = key.second;
-            double score = dw * forwardSim * tempSim / (1 - sqrtC) / (1 - sqrtC);
-            if(largePartAnswer.find(tempNode) == largePartAnswer.end() || largePartAnswer[tempNode] == 0)
-                largePartAnswer[tempNode] = score;
-            else
-                largePartAnswer[tempNode] += score;
-        }
-    }
-
     void getRandomBackList_PRSim(int w, int targetLevel, int backWalkNum, double forwardSim, double dw, double* answer) {
         unordered_map<int, double> walkMap;
         double increment = 1 / (double)backWalkNum * pow(sqrtC, targetLevel) * (1 - sqrtC);
@@ -1166,297 +872,6 @@ class SimStruct{
         answer[u] = 1.0;
     }
 
-    void singleSourceQuery2(int u) {
-        Timer ss2_timer;
-        ss2_timer.start();
-        cout << "singleSourceQuery2 : u = " << u << endl;
-        double single_walk_num = 10 * nr;
-        for (int i = 0; i < curIdx; i++) {
-            int nodeId = ansIdx[i];
-            answer[nodeId] = 0;
-            ans2[nodeId] = 0;
-        }
-        curIdx = 0;
-
-        double forward_time = 0, alias_time = 0, backward_time = 0, calD_time = 0, calAns_time = 0;
-        unordered_map<int, unordered_map<int, double> > foraRealAnswer;
-        unordered_map<int, unordered_map<int, double> > foraPrunedAnswer;
-        foraMap(u, foraRealAnswer, foraPrunedAnswer); // depend on forward_rmax
-        vector<pair<pair<int, int>, double> > aliasP;
-        double rsum = 0;
-        for (auto& c : foraRealAnswer) {
-            int tempLevel = c.first;
-            for (auto& d : c.second) {
-                int w = d.first;
-                double forwardSim = d.second;
-                rsum += forwardSim;
-                aliasP.push_back(pair<pair<int, int>, double>(pair<int, int>(tempLevel, w), forwardSim));
-            }
-        }
-        Alias alias = Alias(aliasP);
-        cout << "singleSourceQuery2: rsum = " << rsum << endl;
-        // estimate d(w)
-        //unordered_map<int, int> hitMap;
-        //unordered_map<int, int> totalMap;
-        Timer sample_d_timer;
-        sample_d_timer.start();
-        for (int i = 0; i < (int)single_walk_num; i++) {
-            pair<int, int> tempPair = alias.generateRandom(R);
-            int tempLevel = tempPair.first;
-            int tempNode = tempPair.second;
-            int hitCount = sampleD(tempNode, 1);
-            if (hitMap.find(tempNode) == hitMap.end())
-                hitMap[tempNode] = 0;
-            if (totalMap.find(tempNode) == totalMap.end())
-                totalMap[tempNode] = 0;
-            hitMap[tempNode] += hitCount;
-            totalMap[tempNode] += 1;
-        }
-        sample_d_timer.end();
-        t_single = sample_d_timer.timeCost / (int)single_walk_num;
-        cout << "t_single = " << t_single << endl;
-        cout << "cal D done!" << endl;
-
-        Timer step1_timer;
-        step1_timer.start();
-        // step 1. 
-        cout << "Step 1" << endl;
-        largePartAnswer.clear();
-        for (auto& c : foraPrunedAnswer) { //foraPrunedAnswer
-            int tempLevel = c.first;
-            for (auto& d : c.second) {
-                int w = d.first;
-                double forwardSim = d.second;
-                double dw = 0;
-                if (g.getInSize(w) == 0)
-                    dw = 1;
-                else if (hitMap.find(w) != hitMap.end())
-                    dw = 1 - C_value / (double)g.getInSize(w) - (double)hitMap[w] / totalMap[w];
-                else
-                    dw = 1 - C_value / (double)g.getInSize(w);
-                getRandomBackList_PRSim(w, tempLevel, back_nr * forwardSim / rsum + 1, forwardSim, dw, largePartAnswer);
-            }
-        }
-        step1_timer.end();
-        cout << "step1_timer.timeCost = " << step1_timer.timeCost << endl;
-
-        /*
-        stringstream ss_test;
-        ss_test << "/home/liuyu/SimTab-release-baseline/candidates/dblp-author/k=50/" << "sorted.txt";
-        vector<pair<int, double> > test_vec;
-        for (auto& y : largePartAnswer) {
-            int nodeId = y.first;
-            double largePart = y.second;
-            if (answer[nodeId] == 0) {
-                ansIdx[curIdx] = nodeId;
-                curIdx++;
-            }
-            answer[nodeId] += largePart;
-            ans2[nodeId] += largePart * largePart;
-            test_vec.push_back(pair<int, double>(nodeId, largePart));
-        }
-        sort(test_vec.begin(), test_vec.end(), maxScoreCmp);
-        ofstream test_of(ss_test.str());
-        for (int x = 0; x < test_vec.size(); x++)
-            test_of << test_vec[x].first << "\t" << test_vec[x].second << endl;
-        test_of.close();
-        */
-        Timer step2_timer;
-        step2_timer.start();
-        int count = 0;        
-        // step 2
-        cout << "Step 2" << endl;        
-        for (int i = 0; i < back_nr; i++) { // back_nr
-            // first sample a walk from u
-            int tempNode = u;
-            int tempLevel = 0;
-            while (R.drand() < sqrtC) {
-                int length = g.getInSize(tempNode);
-                if (length == 0)
-                    break;
-                int r = R.generateRandom() % length;
-                tempNode = g.getInVert(tempNode, r);
-                tempLevel++;
-            }
-            double dw = 0;
-            if (g.getInSize(tempNode) == 0)
-                dw = 1;
-            else if (hitMap.find(tempNode) != hitMap.end())
-                dw = 1 - C_value / (double)g.getInSize(tempNode) - (double)hitMap[tempNode] / totalMap[tempNode];
-            else
-                dw = 1 - C_value / (double)g.getInSize(tempNode);
-            
-            if (foraPrunedAnswer.find(tempLevel) == foraPrunedAnswer.end() || foraPrunedAnswer[tempLevel].find(tempNode) == foraPrunedAnswer[tempLevel].end()) {
-                count++;
-                //cout << "tempLevel = " << tempLevel << " , tempNode = " << tempNode << " , " << (foraPrunedAnswer.find(tempLevel) == foraPrunedAnswer.end())
-                    //<< " , " << (foraPrunedAnswer[tempLevel].find(tempNode) == foraPrunedAnswer[tempLevel].end()) << endl; 
-                    //<< (foraPrunedAnswer[tempLevel][tempNode] == 0) << " , " << foraPrunedAnswer[tempLevel][tempNode] << endl;
-                randomProbe(tempNode, tempLevel, dw, smallPartAnswer);
-                // merge largePartAnswer and smallPartAnswer into answer
-                
-                for (auto& c : largePartAnswer) {
-                    int nodeId = c.first;
-                    double largePart = c.second;
-                    double smallPart = 0;
-                    if (smallPartAnswer.find(nodeId) != smallPartAnswer.end())
-                        smallPart = smallPartAnswer[nodeId];
-                    if (answer[nodeId] == 0) {
-                        ansIdx[curIdx] = nodeId;
-                        curIdx++;
-                    }
-                    answer[nodeId] += largePart + smallPart;
-                    ans2[nodeId] += (largePart + smallPart) * (largePart + smallPart);
-                }
-                
-                for(auto& c : smallPartAnswer) {
-                    int nodeId = c.first;
-                    double smallPart = c.second;
-                    if (largePartAnswer.find(nodeId) == largePartAnswer.end() || largePartAnswer[nodeId] == 0) {
-                        if (answer[nodeId] == 0) {
-                            ansIdx[curIdx] = nodeId;
-                            curIdx++;
-                        }
-                        answer[nodeId] += smallPart;
-                        ans2[nodeId] += smallPart * smallPart;
-                    }
-                }
-            }
-            else {
-                for (auto& c : largePartAnswer) {
-                    int nodeId = c.first;
-                    double largePart = c.second;
-                    if (answer[nodeId] == 0) {
-                        ansIdx[curIdx] = nodeId;
-                        curIdx++;
-                    }
-                    answer[nodeId] += largePart;
-                    ans2[nodeId] += largePart * largePart;
-                }
-            }
-        }
-        step2_timer.end();
-        cout << "step2_timer.timeCost = " << step2_timer.timeCost << endl;
-        cout << "back_nr = " << back_nr << " , count = " << count << endl;
-        
-        ss2_timer.end();
-        cout << "ss2_timer.timeCost = " << ss2_timer.timeCost << endl;
-        totalSample = back_nr;
-        t_pref = ss2_timer.timeCost / totalSample;
-        answer[u] = 1.0;
-    }
-
-    void singleSourceQuery(int u){
-        cout << "singleSourceQuery : u = " << u << endl;
-		double single_walk_num = 10 * nr;
-		for(int i = 0; i < curIdx; i++){
-			int nodeId = ansIdx[i];
-			answer[nodeId] = 0;
-			ans2[nodeId] = 0;
-		}
-		curIdx = 0;
-
-        double forward_time = 0, alias_time=0, backward_time = 0, calD_time = 0, calAns_time = 0;
-        unordered_map<int, vector<pair<int, double> > > forward_map = foraMap(u); // depend on forward_rmax
-        vector<pair<pair<int, int>, double> > aliasP;
-        double rsum = 0;
-        for(auto& c: forward_map){
-            int tempLevel = c.first;
-            for(auto& d: c.second){
-                int w = d.first;
-                double forwardSim = d.second;
-                rsum += forwardSim;
-                aliasP.push_back(pair<pair<int, int>, double>(pair<int, int>(tempLevel,w), forwardSim));
-            }
-        }
-        Alias alias = Alias(aliasP);
-        // estimate d(w)
-		//unordered_map<int, int> hitMap;
-        //unordered_map<int, int> totalMap;
-		Timer sample_d_timer;
-		sample_d_timer.start();
-		for(int i = 0; i < (int)single_walk_num; i++){
-            pair<int, int> tempPair = alias.generateRandom(R);
-			int tempLevel = tempPair.first;
-            int tempNode = tempPair.second;
-            int hitCount = sampleD(tempNode,1); 
-			if(hitMap.find(tempNode) == hitMap.end())
-                hitMap[tempNode] = 0;
-            if(totalMap.find(tempNode) == totalMap.end())
-                totalMap[tempNode] = 0;
-            hitMap[tempNode] += hitCount;
-			totalMap[tempNode] += 1;
-        }
-		sample_d_timer.end();
-		t_single = sample_d_timer.timeCost / (int)single_walk_num;
-		cout << "t_single = " << t_single << endl;
-
-        // unordered_map<int, double> dValue;
-        //dValue.clear();
-        //int cnt_w = 0;
-		//for(auto& w : hitMap){
-            //cnt_w += 1;
-		//	if(g.getInSize(w.first) == 0)
-        //       dValue[w.first] = 1;
-        //    else 
-        //       dValue[w.first] = 1 - C_value / (double) g.getInSize(w.first) - w.second / (double)totalMap[w.first];
-        //}
-        cout << "cal D done!" << endl;
-        
-		for(int i = 0; i < back_nr; i++){
-			// first sample a walk from u
-			int tempNode = u;
-			int tempLevel = 0;
-			while(R.drand() < sqrtC){
-				int length = g.getInSize(tempNode);
-                if(length == 0)
-                    break;
-                int r = R.generateRandom() % length;
-                tempNode = g.getInVert(tempNode, r);
-				tempLevel ++;
-			}
-//			pair<int, int> tempPair = alias.generateRandom(R);
-//			int tempLevel = tempPair.first;
-//          int tempNode = tempPair.second;
-			double dw = 0;
-            if(g.getInSize(tempNode) == 0)
-                dw = 1;
-            else if(hitMap.find(tempNode) != hitMap.end())
-                dw = 1 - C_value / (double)g.getInSize(tempNode) - (double)hitMap[tempNode] / totalMap[tempNode];
-            else
-                dw = 1 - C_value / (double) g.getInSize(tempNode);
-			
-			Timer pref_timer;
-			pref_timer.start();
-			//cout << "tempNode = " << tempNode << " , dw = " << dw << endl;
-            randomProbe(tempNode, tempLevel, dw, answer);
-            //randomProbeOneHopDeter(tempNode, tempLevel, dw, answer);
-            //getRandomBackList(tempNode, tempLevel, 1, 1, dw, answer);
-            /*
-            randomProbe(tempNode, tempLevel, dw, smallPartAnswer);
-            for (auto& c : smallPartAnswer) {
-                int nodeId = c.first;
-                double smallPart = c.second;
-                //if (largePartAnswer.find(nodeId) == largePartAnswer.end() || largePartAnswer[nodeId] == 0) {
-                if (answer[nodeId] == 0) {
-                    ansIdx[curIdx] = nodeId;
-                    curIdx++;
-                }
-                answer[nodeId] += smallPart;
-                ans2[nodeId] += smallPart * smallPart;
-                //}
-            }
-            */
-			pref_timer.end();
-            t_pref += pref_timer.timeCost;
-		}
-		totalSample = back_nr;
-
-		t_pref /= totalSample;
-		cout << "t_pref = " << t_pref << endl;
-
-     	answer[u] = 1.0;
-    }
-
     double computeCB(int nodeId, double *ans2, double estMean, int totalSample, int vert){
 		// invariant:
 		// ans2 = \sum_{non-zero answer}{answer * answer}
@@ -1474,7 +889,7 @@ class SimStruct{
 		cout << "prefilter : qv = " << u << endl;
         Timer prefilter_timer;
         prefilter_timer.start();
-		eps_p = 1.0e-5;
+		eps_p = 1.0e-6;
 		epsilon = 0.5;
 		estMean.clear();
 		prefCB.clear();
@@ -1485,8 +900,8 @@ class SimStruct{
 			rmax = (1 - sqrtC) * (1 - sqrtC) / 25 * epsilon;
 			back_nr = (int)(20 * log(vert) / epsilon / epsilon);
 			nr = (int)(0.1 * back_nr); 
-			forward_rmax = rmax * 2;
-			backward_rmax = rmax;
+			forward_rmax = rmax; // rmax * 2
+			backward_rmax = rmax; // not important; not used
 			t_pref = 0;
 			t_single = 0;
 			totalSample = 0;
@@ -1510,17 +925,13 @@ class SimStruct{
             if (curIdx >= k) {
                 vector<pair<int, double> > lbList;
                 unordered_map<int, double> ubMap;
-                unordered_map<int, double> estMap;
                 for (int i = 0; i < curIdx; i++) {
                     int nodeId = ansIdx[i];
                     if (nodeId != u) {
                         double score = answer[nodeId] / totalSample;
-                        //if (nodeId == 69161)
-                        //    cout << "in prefilter phase, score of 69161 = " << score << endl;
                         double cb = computeCB(nodeId, ans2, score, totalSample, vert);
                         lbList.push_back(pair<int, double>(nodeId, score - cb));
                         ubMap[nodeId] = score + cb;
-                        estMap[nodeId] = score;
                     }
                 }
                 sort(lbList.begin(), lbList.end(), maxScoreCmp); // in descending order, O(nlogn)
@@ -1528,25 +939,27 @@ class SimStruct{
                 //    cout << lbList[i].first << " , " << lbList[i].second << " , " << estMap[lbList[i].first] << endl;
                 int kthNode = lbList[k - 1].first;
                 double kthLB = lbList[k - 1].second;
-                double cb_0 = 3 * C_value * log(1.0 / 0.001) / totalSample;
+                double cb_0 = 3 * C_value * log(1.0 / 0.0001) / totalSample;
                 cout << "kthNode = " << kthNode << " , kthLB = " << kthLB << " , cb_0 = " << cb_0 << endl;
                 if (kthLB + eps_p > cb_0) { // can prune 0
                     vector<int> candidates; // store candidate nodes
+                    int count_cand = k;
                     for (int i = 0; i < k; i++)
                         candidates.push_back(lbList[i].first);
                     for (int i = k; i < lbList.size(); i++) {
                         int cand = lbList[i].first;
                         if (kthLB + eps_p < ubMap[cand]) {
                             candidates.push_back(cand);
+                            count_cand++;
                         }
+                        else if(i < 5000)
+                            candidates.push_back(cand); // not counted
                     }
                     cout << "numCandidate = " << candidates.size() << endl;
-                    if (t_pref * max(5 * k, 100) > t_single * candidates.size()) {
-                        for (int i = 0; i < candidates.size(); i++) {
+                    if (t_pref * max(2 * k, 500) > t_single * count_cand) {
+                        for (int i = 0; i < candidates.size(); i++) { // candidates
                             int cand = candidates[i];
                             estMean.push_back(pair<int, double>(cand, answer[cand] / totalSample));
-                            //if (cand == 69161)
-                            //    cout << "cand = " << cand << " , " << answer[cand] / totalSample << endl;
                             double ithCB = computeCB(cand, ans2, answer[cand] / totalSample, totalSample, vert);
                             prefCB.push_back(pair<int, double>(cand, ithCB));
                         }
@@ -1564,14 +977,19 @@ class SimStruct{
 	/* output candidate set */
 	void outputCandidate(int u, int k){
 		stringstream ssout;
-		ssout << "candidates/" << filelabel << "/k=" << k << "/" << u << ".txt";
+		ssout << "candidates/" << filelabel << "/k=" << k << "/";
+		mkpath(ssout.str());
+		ssout << u << ".txt";
 		ofstream fout(ssout.str());
 		fout.precision(15);
 		for(int i = 0; i < estMean.size(); i++){
             int nodeId = estMean[i].first;
-            fout << estMean[i].first << "\t" << estMean[i].second << "\t" << totalSample << "\t" << ans2[nodeId] << "\t" << estMean.size() << endl;
+            double ithCB = computeCB(nodeId, ans2, estMean[i].second, totalSample, vert);
+            fout << estMean[i].first << "\t" << estMean[i].second << "\t" << totalSample << "\t" << ithCB << "\t" << estMean.size() << endl;
 		}
 	}
+	
+	// -----------------------------------------------------------------------------------------------
 
     /*
     sample-one-arm implementation
@@ -1608,138 +1026,10 @@ class SimStruct{
         totalMABSample += batchSample;
     }
     
-    /* The top-k MAB phase */
-    vector <pair<int, double> > UGapE(int queryNode, int k) {
-        Timer ugape_timer;
-        ugape_timer.start();
-
-        double eps_min = 1e-4;
-        vector<pair<int, double> > B;
-        unordered_map<int, double> UB, LB;
-        vector<pair<int, double> > vecUB, vecLB;
-        rsumMap.clear();
-        aliasMap.clear();
-        nodeToAliasPos.clear();
-        // clock_t ts_ugape = clock();
-        double sortTime = 0, sampleTime = 0;
-        adaptPushTime = 0; adaptDeterQueryTime = 0; adaptRandQueryTime = 0;
-        Timer sort_timer, sample_timer;
-        // mean, cntSample, and sum_Xi2 already have values
-        // clock_t tsSample = clock();
-        int round = 0;
-        int batch = 10;
-        int batchSample = 10000; // max(10000, (int)(candList.size()));
-        cout << "batchSample = " << batchSample << endl;
-        // test
-        //for (int i = 0; i < candList.size(); i++) {
-        //    int armId = candList[i];
-        //    sampleOneArm_Naive(queryNode, armId, 100);
-        //} //
-        while (true) {
-            round++;
-            sort_timer.start();
-            UB.clear();
-            LB.clear();
-            vecUB.clear();
-            vecLB.clear();
-            B.clear();
-            //遍历arm统一用candList
-            for (int i = 0; i < candList.size(); i++) {
-                int armId = candList[i];
-                double ugapCB = ugapeCB(candList.size(), answer[armId], ans2[armId], cntMABSample[armId], 1.0e-4, round);
-                UB[armId] = answer[armId] / cntMABSample[armId] + ugapCB;
-                LB[armId] = answer[armId] / cntMABSample[armId] - ugapCB;
-                vecUB.push_back(pair<int, double>(armId, answer[armId] / cntMABSample[armId] + ugapCB));
-            }
-            sort(vecUB.begin(), vecUB.end(), maxScoreCmp); // descreasing order
-            double kthUB = vecUB[k - 1].second; // k-th largest UB
-            double k1thUB = vecUB[k].second;    // k+1-th largest UB
-            
-            for (int i = 0; i < vecUB.size(); i++) {
-                int armId = vecUB[i].first;
-                if (i < k)     //(i < k)
-                    B.push_back(pair<int, double>(armId, k1thUB - LB[armId]));
-                else
-                    B.push_back(pair<int, double>(armId, kthUB - LB[armId]));
-            }
-            vecUB.clear();
-            sort(B.begin(), B.end(), minScoreCmp); // increasing order
-
-            double largestB;
-            for (int i = 0; i < B.size(); i++) {
-                int armId = B[i].first;
-                if (i < k) {
-                    vecLB.push_back(pair<int, double>(armId, LB[armId]));
-                    if (i == k-1)
-                        largestB = B[i].second;
-                }
-                else
-                    vecUB.push_back(pair<int, double>(armId, UB[armId]));
-            }
-            sort(vecLB.begin(), vecLB.end(), minScoreCmp);
-            sort(vecUB.begin(), vecUB.end(), maxScoreCmp);
-            sort_timer.end();
-            sortTime += sort_timer.timeCost;
-            
-            if (largestB <= eps_min) { // B[k - 1].second
-                //vector<int> upageTopk;
-                vector <pair<int, double> > ugapeAnswer;
-                for (int i = 0; i < vecLB.size(); i++) {
-                    int armId = vecLB[i].first;
-                    ugapeAnswer.push_back(pair<int, double>(armId, answer[armId] / cntMABSample[armId]));
-                    cout << "armId = " << armId << " , cntMABSample[armId] = " << cntMABSample[armId] << " , est = " << answer[armId] / cntMABSample[armId] << endl;
-                    //if (sameInNbr.find(armId) != sameInNbr.end()) {
-                    //    vector<int>& sameInNbrList = sameInNbr[armId];
-                    //    for (int j = 0; j < sameInNbrList.size(); j++)
-                    //        upageTopk.push_back(sameInNbrList[j]);
-                    //}
-                }
-                sort(ugapeAnswer.begin(), ugapeAnswer.end(), maxScoreCmp);
-                //for (int i = 0; i < candList.size(); i++)
-                   //delete aliasMap[i];
-                
-                //clock_t te_ugape = clock();
-                //sampleTime = (te_ugape - tsSample) / (double)CLOCKS_PER_SEC;
-                //cout << "UGapE: " << (te_ugape - ts_ugape) / (double)CLOCKS_PER_SEC << endl;
-                //cout << "initTime = " << initTime << endl;
-                //cout << "sampleTime = " << sampleTime << endl;
-                //cout << "totalSample = " << totalSample << endl;
-                //cout << "sortTime = " << sortTime << endl;
-                ugape_timer.end();
-                avg_mab_time += ugape_timer.timeCost;
-                stringstream ssout;
-                ssout << "ugape/" << filelabel << "/k=" << k << "/";
-                mkpath(ssout.str());
-                ssout << queryNode << ".txt";
-                ofstream fout(ssout.str());
-                fout.precision(15);
-                for (int i = 0; i < ugapeAnswer.size(); i++) {
-                    fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second << endl;
-                }
-                cout << "ugape_timer.timeCost = " << ugape_timer.timeCost << " , sortTime = " << sortTime << " , sampleTime = " << sampleTime << " , adaptPushTime = " << adaptPushTime  << endl;
-                cout << "adaptDeterQueryTime = " << adaptDeterQueryTime << " , adaptRandQueryTime = " << adaptRandQueryTime << endl;
-                return ugapeAnswer;
-            }
-            // sample high
-            sample_timer.start();
-            for (int i = 0; i < batch; i++) {
-                int armId = vecLB[i].first;
-                sampleOneArm_Naive(queryNode, armId, batchSample);
-                //sampleOneArm(queryNode, armId, batchSample);
-            }
-            // sample low
-            for (int i = 0; i < batch; i++) {
-                int armId = vecUB[i].first;
-                sampleOneArm_Naive(queryNode, armId, batchSample);
-                //sampleOneArm(queryNode, armId, batchSample);
-            }
-            sample_timer.end();
-            sampleTime += sample_timer.timeCost;
-        }
-    }
+    
 
     /* confidence bound */
-    double ugapeCB(int numOfArms, double answer, double sum_x2, int numSample, double failProb, int round) {
+    double ugapeCB(int numOfArms, double answer, double sum_x2, long numSample, double failProb, double round) {
         double est_mean;
         if (numSample == 0)
             est_mean = 0;
@@ -1751,11 +1041,39 @@ class SimStruct{
         double part2 = 7.0 / 6 * log(numOfArms * pow(round, 3.0) / failProb) / (numSample - 1);
         //cout << "part1 = " << part1 << endl;
         //cout << "part2 = " << part2 << endl;
-        return part1 + part2;
+        return (part1 + part2);
     }
 
     bool checkSameInNbr(int cnode) {
         bool found = false;
+        int ind = g.getInSize(cnode);
+        if (sameInNbrMap2.find(ind) == sameInNbrMap2.end()) {
+            unordered_map<int, vector<int> > subMap;
+            vector<int> tempVec;
+            tempVec.push_back(cnode);
+            subMap[cnode] = tempVec;
+            sameInNbrMap2[ind] = subMap;
+            return found;
+        }
+        else {
+            unordered_map<int, vector<int> >& subMap = sameInNbrMap2[ind];
+            for (auto& a : subMap) {
+                int exist_node = a.first;
+                vector<int>& v = a.second;
+                if (hasSameInNbr(exist_node, cnode)) {
+                    v.push_back(cnode);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                vector<int> v;
+                v.push_back(cnode);
+                subMap[cnode] = v;
+            }
+        }
+
+        /*
         for (auto& a : sameInNbrMap) {
             int exist_cnode = a.first;
             vector<int>& v = a.second;
@@ -1766,203 +1084,184 @@ class SimStruct{
                 break;
             }
         }
-        if (!found) {
-            vector<int> v;
-            v.push_back(cnode);
-            sameInNbrMap[cnode] = v;
-        }
+        */
+        
         return found;
     }
 
     bool hasSameInNbr(int exist_cnode, int cnode) {
-        if (g.getInSize(exist_cnode) != g.getInSize(cnode))
-            return false;
-        unordered_set<int> exist_cnode_nbr;
+        //if (g.getInSize(exist_cnode) != g.getInSize(cnode))
+        //    return false;
+        //unordered_set<int> exist_cnode_nbr;
+        /* exist_cnode and cnode has same indegree */
         for (int i = 0; i < g.getInSize(exist_cnode); i++)
-            exist_cnode_nbr.insert(g.getInVert(exist_cnode, i));
+            exist_cnode_nbr[g.getInVert(exist_cnode, i)] = true;
         bool isSame = true;
         for (int i = 0; i < g.getInSize(cnode); i++) {
             int tempNode = g.getInVert(cnode, i);
-            if (exist_cnode_nbr.find(tempNode) == exist_cnode_nbr.end()) {
+            if (exist_cnode_nbr[tempNode] == false) {
                 isSame = false;
                 break;
             }
         }
+        for (int i = 0; i < g.getInSize(exist_cnode); i++)
+            exist_cnode_nbr[g.getInVert(exist_cnode, i)] = false;
         return isSame;
     }
 
-    void readCandidatesFromPrefilter(string candpath, int qnode) {
-        candList.clear();
-        totalMABSample = 0;
-        cntMABSample.clear();
-        if (curIdx != 0) {
-            for (int i = 0; i < curIdx; i++) {
-                int nodeId = ansIdx[i];
-                answer[nodeId] = 0;
-                ans2[nodeId] = 0;
-            }
-            curIdx = 0;
-        }
-        // file format:
-        // nodeId estScore totalAllArmsSample ans2 candidateSize
-        stringstream ss;
-        ss << candpath << "/" << qnode << ".txt";
-        ifstream ifcand(ss.str());
-        while (ifcand.good()) {
-            int cnode;
-            double estScore;
-            int cntAllArmsSample;
-            double ans2val;
-            int candsz;
-            ifcand >> cnode >> estScore >> cntAllArmsSample >> ans2val >> candsz;
-            if (find(candList.begin(), candList.end(), cnode) == candList.end()) {
-                candList.push_back(cnode); // equivalent to ansIdx? no must update ansIdx
-                
-                answer[cnode] = estScore * cntAllArmsSample;
-                cntMABSample[cnode] = cntAllArmsSample;
-                totalMABSample += cntAllArmsSample;
-                ans2[cnode] = ans2val;
+    
 
-                budgetMap[cnode] = 1;
-                adaptResidueMap[cnode][0][cnode] = 1;
-            }
-        }
-        ifcand.close();
-        cout << "qnode = " << qnode << " , candList.size() = " << candList.size() << endl;
-        budgetMap[qnode] = 1;
-        adaptResidueMap[qnode][0][qnode] = 1;
+	void readCandidatesFromPrefilter3(int qnode, int k) {
+        stringstream ss_cand_path;
+        ss_cand_path << "candidates/" << filelabel << "/k=" << k << "/";
+        string candpath = ss_cand_path.str();
+		// candList.clear(); // do not use candList anymore
+		totalMABSample = 0;
+		cntMABSample.clear();
+		sameInNbrMap.clear();
+        sameInNbrMap2.clear(); //
+		nodeToAliasPos.clear(); // newly added
+		if (curIdx != 0) {
+			cout << "curIdx = " << curIdx << " , clear the results of the prefiltering phase..." << endl;
+			for (int i = 0; i < curIdx; i++) {
+				int nodeId = ansIdx[i];
+				answer[nodeId] = 0;
+				ans2[nodeId] = 0;
+			}
+			curIdx = 0;
+		}
+		// file format:
+		// nodeId estScore totalAllArmsSample ans2 candidateSize
+		stringstream ss;
+		ss << candpath << "/" << qnode << ".txt";
+		ifstream ifcand(ss.str());
+		double chk_nbr_time = 0;
+		Timer chkNbrTimer;
+		double prev_cnode = -1;
+        cntMABSample[qnode] = 0; // totalSample;
+        int countRead = 0;
+		while (ifcand.good() && countRead < max(5 * k, 500)) { //   && countRead < max(5 * k, 500) // for testing MC
+            countRead++;
+			int cnode;
+			double estScore;
+			int cntAllArmsSample;
+			double ans2val;
+			int candsz;
+			ifcand >> cnode >> estScore >> cntAllArmsSample >> ans2val >> candsz;
+			if (cnode != prev_cnode) {
+				chkNbrTimer.start();
+				bool found = checkSameInNbr(cnode);
+				chkNbrTimer.end();
+				chk_nbr_time += chkNbrTimer.timeCost;
+				if (!found) {
+					// candList.push_back(cnode); // equivalent to ansIdx? no must update ansIdx
+					answer[cnode] = 0; // estScore * cntAllArmsSample;
+					cntMABSample[cnode] = 0; // cntAllArmsSample;
+					budgetMap[cnode] = cntAllArmsSample;
+					totalMABSample = 0; // += cntAllArmsSample;
+					ans2[cnode] = 0; // ans2val;
+					ansIdx[curIdx] = cnode;
+					curIdx++;
 
-        nodeToAliasPos.clear();
-        for (int i = 0; i < candList.size(); i++) {
-            int nodeId = candList[i];
-            ansIdx[curIdx] = nodeId;
-            curIdx++;
-        }
-    }
+					//budgetMap[cnode] = 1;
+					//adaptResidueMap[cnode][0][cnode] = 1;
+				}
+				prev_cnode = cnode;
+			}
+			else
+				cout << "end of candidates : " << cnode << " , " << estScore << " , " << cntAllArmsSample << " , " << ans2val << " , " << candsz << endl;
+		}
+		ifcand.close();
+		cout << "qnode = " << qnode << " , candidate size = " << curIdx << " , sameInNbrMap.size() = " << sameInNbrMap.size() << endl;
+		cout << "chk_nbr_time = " << chk_nbr_time << endl;
+		avg_chk_nbr_time += chk_nbr_time;
+		//budgetMap[qnode] = 1;
+		//adaptResidueMap[qnode][0][qnode] = 1;
 
-    void readCandidatesFromPrefilter2(string candpath, int qnode) {
-        // candList.clear(); // do not use candList anymore
-        totalMABSample = 0;
-        cntMABSample.clear();
-        sameInNbrMap.clear();
-        if (curIdx != 0) {
-            cout << "curIdx = " << curIdx << " , clear the results of the prefiltering phase..." << endl;
-            for (int i = 0; i < curIdx; i++) {
-                int nodeId = ansIdx[i];
-                answer[nodeId] = 0;
-                ans2[nodeId] = 0;
-            }
-            curIdx = 0;
-        }
-        // file format:
-        // nodeId estScore totalAllArmsSample ans2 candidateSize
-        stringstream ss;
-        ss << candpath << "/" << qnode << ".txt";
-        ifstream ifcand(ss.str());
-        double chk_nbr_time = 0;
-        Timer chkNbrTimer;
-        double prev_cnode = -1;
-        while (ifcand.good()) {
-            int cnode;
-            double estScore;
-            int cntAllArmsSample;
-            double ans2val;
-            int candsz;
-            ifcand >> cnode >> estScore >> cntAllArmsSample >> ans2val >> candsz;
-            if (cnode != prev_cnode) {
-                chkNbrTimer.start();
-                bool found = checkSameInNbr(cnode);
-                chkNbrTimer.end();
-                chk_nbr_time += chkNbrTimer.timeCost;
-                if (!found) {
-                    // candList.push_back(cnode); // equivalent to ansIdx? no must update ansIdx
-                    answer[cnode] = estScore * cntAllArmsSample;
-                    cntMABSample[cnode] = cntAllArmsSample;
-                    totalMABSample += cntAllArmsSample;
-                    ans2[cnode] = ans2val;
-                    ansIdx[curIdx] = cnode;
-                    curIdx++;
-
-                    //budgetMap[cnode] = 1;
-                    //adaptResidueMap[cnode][0][cnode] = 1;
-                }
-                prev_cnode = cnode;
-            }
-            else
-                cout << "end of candidates : " << cnode << " , " << estScore << " , " << cntAllArmsSample << " , " << ans2val << " , " << candsz << endl;
-        }
-        ifcand.close();
-        cntMABSample[qnode] = totalSample;
-        cout << "qnode = " << qnode << " , candidate size = " << curIdx << " , sameInNbrMap.size() = " << sameInNbrMap.size() << endl;
-        cout << "chk_nbr_time = " << chk_nbr_time << endl;
-        avg_chk_nbr_time += chk_nbr_time;
-        //budgetMap[qnode] = 1;
-        //adaptResidueMap[qnode][0][qnode] = 1;
-
-        //nodeToAliasPos.clear();
-        //for (int i = 0; i < candList.size(); i++) {
-        //    int nodeId = candList[i];
-        //    ansIdx[curIdx] = nodeId;
-        //    curIdx++;
-        //}
-    }
+		//
+		//for (int i = 0; i < candList.size(); i++) {
+		//    int nodeId = candList[i];
+		//    ansIdx[curIdx] = nodeId;
+		//    curIdx++;
+		//}
+	}
 
     void MC(int queryNode, int k) {
         Timer mcTimer;
         mcTimer.start();
-        double eps_mc = 1.0e-4;
-        int numSample = log(curIdx) / eps_mc / eps_mc;
+        double eps_mc = 1.0e-2;
+        int numSample = (int)(log(curIdx) / eps_mc / eps_mc);
         cout << "MC : numSample = " << numSample << endl;
-        for (int i = 0; i < curIdx; i++) {
-            int cnode = ansIdx[i];
-            sampleOneArm_Naive(queryNode, cnode, numSample);
-        }
-        mcTimer.end();
-        vector <pair<int, double> > ugapeAnswer;
-        for (auto& item : sameInNbrMap) {
-            int armId = item.first;
-            vector<int>& sameNbrVec = sameInNbrMap[armId];
-            for (int j = 0; j < sameNbrVec.size(); j++) {
-                int tempNode = sameNbrVec[j];
-                ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
-                cout << "armId = " << tempNode << " , cntMABSample[armId] = " << cntMABSample[armId] << " , est = " << answer[armId] / cntMABSample[armId] << endl;
+        vector<pair<int, double> > mcAnswer;
+        for (auto& item : sameInNbrMap2) {
+            unordered_map<int, vector<int>> subMap = item.second;
+            for (auto& subItem : subMap) {
+                int cnode = subItem.first;
+                sampleOneArm_Naive(queryNode, cnode, numSample);
+                vector<int>& sameNbrVec = subItem.second;
+                for (int j = 0; j < sameNbrVec.size(); j++) {
+                    int tempNode = sameNbrVec[j];
+                    mcAnswer.push_back(pair<int, double>(tempNode, answer[cnode] / cntMABSample[cnode]));
+                    cout << "cnode = " << tempNode << " , cntMABSample[tempNode] = " << cntMABSample[cnode] << " , est = " << answer[cnode] / cntMABSample[cnode] << endl;
+                }
             }
         }
-        sort(ugapeAnswer.begin(), ugapeAnswer.end(), maxScoreCmp);
+        mcTimer.end();
+        sort(mcAnswer.begin(), mcAnswer.end(), maxScoreCmp);
         stringstream ssout;
         ssout << "MC/" << filelabel << "/k=" << k << "/";
         mkpath(ssout.str());
         ssout << queryNode << ".txt";
         ofstream fout(ssout.str());
         fout.precision(15);
-        for (int i = 0; i < ugapeAnswer.size(); i++) {
-            fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second << endl;
+        for (int i = 0; i < mcAnswer.size(); i++) {
+            fout << mcAnswer[i].first << "\t" << mcAnswer[i].second << endl;
         }
+        fout.close();
         cout << "mcTimer.timeCost = " << mcTimer.timeCost << " , # total sample = " << numSample * curIdx << endl;
     }
 
     vector <pair<int, double> > UGapE2(int queryNode, int k) {
+        // TEST
+        // read ground truth
+        unordered_map<int, double> gtMap;
+        stringstream ss_gt_in;
+        ss_gt_in << "/home/liuyu/SimRace-liuyu/GroundTruth_ExactSim/" << filelabel << "/" << queryNode << "+0.0000001000.txt";
+        ifstream if_gt(ss_gt_in.str());
+        while (if_gt.good()) {
+            int node;
+            double gtScore;
+            if_gt >> node >> gtScore;
+            gtMap[node] = gtScore;
+        }
+        if_gt.close();
+        cout << "reading ground truth done" << endl;
+
         Timer ugape_timer;
         ugape_timer.start();
         double sortTime = 0, sampleTime = 0;
-        adaptPushTime = 0; adaptDeterQueryTime = 0; adaptRandQueryTime = 0;
         Timer sort_timer, sample_timer;
 
         // first should check if there exist exact k candidates
         int numCand = 0;
-        for (auto& item : sameInNbrMap)
-            numCand += item.second.size();
+        for (auto& item : sameInNbrMap2) {
+            for(auto& subItem : item.second)
+                numCand += subItem.second.size();
+        }
         cout << "numCand = " << numCand << endl;
         if (numCand <= k) {
             cout << "less than k candidates, skip sample-one-arm phase..." << endl;
             vector <pair<int, double> > ugapeAnswer;
-            for (auto& item : sameInNbrMap) {
-                int armId = item.first;
-                vector<int>& sameNbrVec = sameInNbrMap[armId];
-                for (int j = 0; j < sameNbrVec.size(); j++) {
-                    int tempNode = sameNbrVec[j];
-                    ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
-                    cout << "armId = " << tempNode << " , cntMABSample[armId] = " << cntMABSample[armId] << " , est = " << answer[armId] / cntMABSample[armId] << endl;
+            for (auto& item : sameInNbrMap2) {
+                unordered_map<int, vector<int>>& subMap = item.second;
+                for (auto& subItem : subMap) {
+                    int armId = subItem.first;
+                    vector<int>& sameNbrVec = subItem.second;
+                    for (int j = 0; j < sameNbrVec.size(); j++) {
+                        int tempNode = sameNbrVec[j];
+                        ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
+                        cout << "armId = " << tempNode << " , cntMABSample[armId] = " << cntMABSample[armId] << " , est = " << answer[armId] / cntMABSample[armId] << endl;
+                    }
                 }
             }
             sort(ugapeAnswer.begin(), ugapeAnswer.end(), maxScoreCmp);
@@ -1977,26 +1276,27 @@ class SimStruct{
             for (int i = 0; i < ugapeAnswer.size(); i++) {
                 fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second << endl;
             }
-            cout << "ugape_timer.timeCost = " << ugape_timer.timeCost << " , sortTime = " << sortTime << " , sampleTime = " << sampleTime << " , adaptPushTime = " << adaptPushTime << endl;
-            cout << "adaptDeterQueryTime = " << adaptDeterQueryTime << " , adaptRandQueryTime = " << adaptRandQueryTime << endl;
+            cout << "ugape_timer.timeCost = " << ugape_timer.timeCost << " , sortTime = " << sortTime << " , sampleTime = " << sampleTime << endl;
             return ugapeAnswer;
         }
 
         // second
-        double eps_min = 1e-3;
+        double eps_min = 1e-5;
         vector<pair<int, double> > B;
         unordered_map<int, double> UB, LB;
         vector<pair<int, double> > vecUB, vecLB;
-        unordered_map<int, int> rank; 
-        //rsumMap.clear();
-        //aliasMap.clear();
-        //nodeToAliasPos.clear();       
+        unordered_map<int, int> rank;        
         
         // mean, cntSample, and sum_Xi2 already have values
-        int round = 0;
+        double round = 0;
         int batch = 10;
-        int batchSample = 10000; // max(10000, (int)(candList.size()));
+        int batchSample = 10000; 
         cout << "batchSample = " << batchSample << endl;
+
+        for (int i = 0; i < curIdx; i++) {
+            int armId = ansIdx[i];
+            sampleOneArm_Naive(queryNode, armId, 1000);
+        }
 
         while (true) {
             round++;
@@ -2021,7 +1321,7 @@ class SimStruct{
             for (int i = 0; i < vecUB.size(); i++) {
                 int armId = vecUB[i].first;
                 rank[armId] = accum_rank;
-                accum_rank += sameInNbrMap[armId].size();
+                accum_rank += sameInNbrMap2[g.getInSize(armId)][armId].size();
                 //cout << "armId = " << armId << " , rank[armId] = " << rank[armId] << endl;
                 if (rank[armId] <= k && accum_rank > k) {
                     kthUB = vecUB[i].second;
@@ -2031,8 +1331,6 @@ class SimStruct{
                         k1thUB = vecUB[i + 1].second;
                 }
             }
-            //cout << "kthUB = " << kthUB << endl;
-            //cout << "k1thUB = " << k1thUB << endl;
 
             for (int i = 0; i < vecUB.size(); i++) {
                 int armId = vecUB[i].first;
@@ -2049,12 +1347,10 @@ class SimStruct{
             for (int i = 0; i < B.size(); i++) {
                 int armId = B[i].first;
                 rank[armId] = accum_rank;
-                //cout << "armId = " << armId << " , rank[armId] = " << rank[armId] << endl;
-                accum_rank += sameInNbrMap[armId].size();
+                accum_rank += sameInNbrMap2[g.getInSize(armId)][armId].size();
                 if (rank[armId] <= k && accum_rank > k)
                     kthB = B[i].second;
             }
-            //cout << "kthB = " << kthB << endl;
             
             for (int i = 0; i < B.size(); i++) {
                 int armId = B[i].first;
@@ -2065,14 +1361,6 @@ class SimStruct{
             }
             sort(vecLB.begin(), vecLB.end(), minScoreCmp);
             sort(vecUB.begin(), vecUB.end(), maxScoreCmp);
-            //cout << "vecLB.size() = " << vecLB.size() << " , vecUB.size() = " << vecUB.size() << endl;
-            //cout << "vecLB contains:" << endl;
-            //for (int i = 0; i < vecLB.size(); i++)
-            //    cout << vecLB[i].first << " , " << endl;
-            //cout << "vecUB contains:" << endl;
-            //for (int i = 0; i < vecUB.size(); i++)
-            //    cout << vecUB[i].first << " , " << endl;
-
             sort_timer.end();
             sortTime += sort_timer.timeCost;
 
@@ -2080,7 +1368,17 @@ class SimStruct{
                 vector <pair<int, double> > ugapeAnswer;
                 for (int i = 0; i < vecLB.size(); i++) {
                     int armId = vecLB[i].first;
-                    vector<int>& sameNbrVec = sameInNbrMap[armId];
+                    vector<int>& sameNbrVec = sameInNbrMap2[g.getInSize(armId)][armId];
+                    for (int j = 0; j < sameNbrVec.size(); j++) {
+                        int tempNode = sameNbrVec[j];
+                        ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
+                        cout << "armId = " << tempNode << " , cntMABSample[armId] = " << cntMABSample[armId] << " , est = " << answer[armId] / cntMABSample[armId] << endl;
+                    }
+                }
+                // TEST
+                for (int i = 0; i < vecUB.size(); i++) {
+                    int armId = vecUB[i].first;
+                    vector<int>& sameNbrVec = sameInNbrMap2[g.getInSize(armId)][armId];
                     for (int j = 0; j < sameNbrVec.size(); j++) {
                         int tempNode = sameNbrVec[j];
                         ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
@@ -2088,16 +1386,6 @@ class SimStruct{
                     }
                 }
                 sort(ugapeAnswer.begin(), ugapeAnswer.end(), maxScoreCmp);
-                //for (int i = 0; i < candList.size(); i++)
-                   //delete aliasMap[i];
-
-                //clock_t te_ugape = clock();
-                //sampleTime = (te_ugape - tsSample) / (double)CLOCKS_PER_SEC;
-                //cout << "UGapE: " << (te_ugape - ts_ugape) / (double)CLOCKS_PER_SEC << endl;
-                //cout << "initTime = " << initTime << endl;
-                //cout << "sampleTime = " << sampleTime << endl;
-                //cout << "totalSample = " << totalSample << endl;
-                //cout << "sortTime = " << sortTime << endl;
                 ugape_timer.end();
                 avg_mab_time += ugape_timer.timeCost;
                 stringstream ssout;
@@ -2107,10 +1395,11 @@ class SimStruct{
                 ofstream fout(ssout.str());
                 fout.precision(15);
                 for (int i = 0; i < ugapeAnswer.size(); i++) {
-                    fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second << endl;
+                    fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second << "\t" 
+                         << ugapeCB(curIdx, answer[ugapeAnswer[i].first], ans2[ugapeAnswer[i].first], cntMABSample[ugapeAnswer[i].first], 1.0e-4, round) 
+                         << "\t" << ugapeAnswer[i].second  - gtMap[ugapeAnswer[i].first] << "\t" << cntMABSample[ugapeAnswer[i].first] << endl;
                 }
-                cout << "ugape_timer.timeCost = " << ugape_timer.timeCost << " , sortTime = " << sortTime << " , sampleTime = " << sampleTime << " , adaptPushTime = " << adaptPushTime << endl;
-                cout << "adaptDeterQueryTime = " << adaptDeterQueryTime << " , adaptRandQueryTime = " << adaptRandQueryTime << endl;
+                cout << "ugape_timer.timeCost = " << ugape_timer.timeCost << " , sortTime = " << sortTime << " , sampleTime = " << sampleTime << endl;
                 return ugapeAnswer;
             }
             // sample high
@@ -2118,137 +1407,18 @@ class SimStruct{
             for (int i = 0; i < min(batch, (int)(vecLB.size())); i++) {
                 int armId = vecLB[i].first;
                 sampleOneArm_Naive(queryNode, armId, batchSample);
-                //sampleOneArm(queryNode, armId, batchSample);
             }
             // sample low
             for (int i = 0; i < min(batch, (int)(vecUB.size())); i++) {
                 int armId = vecUB[i].first;
                 sampleOneArm_Naive(queryNode, armId, batchSample);
-                //sampleOneArm(queryNode, armId, batchSample);
             }
             sample_timer.end();
             sampleTime += sample_timer.timeCost;
         }
     }
 
-    void adaptivePush(int node, int budget, int qNode) {
-        cout << "adaptivePush : node = " << node << " , prev_budget = " << budgetMap[node] << " , budget = " << budget << " , qNode = " << qNode << endl;
-        double cur_rmax = 1.0 / budget * 1; // tunable
-        //cout << "cur_rmax = " << cur_rmax << endl;
-        //if (adaptResidueMap.find(node) == adaptResidueMap.end())
-            //cout << "impossible!" << endl;
-        unordered_set<int> lvlSet;
-        priority_queue<int, vector<int>, comp2> minQ;
-        for (auto& item : adaptResidueMap[node]) {
-            int level = item.first;
-            if (lvlSet.find(level) == lvlSet.end()) {
-                lvlSet.insert(level);
-                minQ.push(level);
-            }
-        }
-        //cout << "lvlSet.size() = " << lvlSet.size() << endl;
-        //vector<int> removeList;
-        while (!minQ.empty()) {
-            int lvl = minQ.top();
-            minQ.pop();
-            unordered_map<int, double>& submap = adaptResidueMap[node][lvl];
-            //cout << "lvl = " << lvl << " , submap.size() = " << submap.size() << endl;
-            for (auto& item : submap) {
-                int w = item.first;
-                double residue_w = item.second;
-                //cout << "w = " << w << " , residue_w = " << residue_w << endl;
-                if ((g.getInSize(w) > 0) && (residue_w / g.getInSize(w) >= cur_rmax)) { //push
-                    //cout << "push" << endl;
-                    double reserve_w = residue_w * (1 - sqrtC);
-                    if (adaptReserveMap[node][lvl][w] == 0)
-                        adaptReserveMap[node][lvl][w] = reserve_w;
-                    else
-                        adaptReserveMap[node][lvl][w] += reserve_w;
-                    double res_inc = residue_w * sqrtC / g.getInSize(w);
-                    for (int j = 0; j < g.getInSize(w); j++) {
-                        int nbr = g.getInVert(w, j);
-                        if (adaptResidueMap[node][lvl + 1][nbr] == 0)
-                            adaptResidueMap[node][lvl + 1][nbr] = res_inc;
-                        else
-                            adaptResidueMap[node][lvl + 1][nbr] += res_inc;
-
-                        if ((g.getInSize(nbr) > 0) && (adaptResidueMap[node][lvl + 1][nbr] / g.getInSize(nbr) >= cur_rmax) && (lvlSet.find(lvl + 1) == lvlSet.end())) {
-                            lvlSet.insert(lvl + 1);
-                            minQ.push(lvl + 1);
-                        }
-                    }
-                    adaptResidueMap[node][lvl][w] = 0;
-                }
-            }
-        }
-        // update budget
-        budgetMap[node] = budget;
-        double rsum_node = 0;
-        unordered_map<int, unordered_map<int, double>> copySubmap; // remove items with residue = 0
-        vector<pair<pair<int, int>, double> > aliasP;
-        for (auto& item : adaptResidueMap[node]) {
-            int lvl = item.first;
-            unordered_map<int, double>& subsubmap = item.second;
-            for (auto& subitem : subsubmap) {
-                int w = subitem.first;
-                double res_w = subitem.second;
-
-                if (res_w > 0) {
-                    //cout << "lvl = " << lvl << " , w = " << w << " , res_w = " << res_w << endl;
-                    rsum_node += res_w;
-                    aliasP.push_back(pair<pair<int, int>, double>(pair<int, int>(lvl, w), res_w));
-                    copySubmap[lvl][w] = res_w;
-                }
-            }
-        }
-        adaptResidueMap[node] = copySubmap;
-        //test 
-        /*
-        for (auto& item : adaptResidueMap[node]) {
-            int lvl = item.first;
-            unordered_map<int, double>& subsubmap = item.second;
-            for (auto& subitem : subsubmap) {
-                int w = subitem.first;
-                double res_w = subitem.second;
-
-                if (res_w == 0) {
-                    cout << "error, still has 0" << endl;
-                    exit(0);
-                }
-            }
-        }
-        */
-
-
-        if (nodeToAliasPos.find(node) == nodeToAliasPos.end()) {
-            int pos = aliasMap.size();
-            nodeToAliasPos[node] = pos;
-            aliasMap.push_back(Alias(aliasP)); // at position pos
-        }
-        else
-            aliasMap[nodeToAliasPos[node]] = Alias(aliasP);
-
-        rsumMap[node] = rsum_node;
-        cout << "adaptivePush done" << endl;
-        cout << "rsumMap[node] = " << rsumMap[node] << endl;
-
-        // pre-compute some parts of the SimRank value
-        // must guarantee that adaptReserveMap.find(queryNode) != adaptReserveMap.end() && adaptReserveMap.find(candNode) != adaptReserveMap.end()
-        if (node != qNode) {
-            precompute_part1(node, qNode);
-            precompute_part2(node, qNode, part2Map, node);
-            precompute_part2(qNode, node, part3Map, node);
-        }
-        else { // query node
-            // for all candidates, precompute
-            for (int i = 0; i < curIdx; i++) {
-                int cnode = ansIdx[i];
-                precompute_part1(cnode, qNode);
-                precompute_part2(cnode, qNode, part2Map, cnode);
-                precompute_part2(qNode, cnode, part3Map, cnode);
-            }
-        }
-    }
+	
 
     /* compute \sum{pi_l(cnode, w) * pi_l(qnode, w)} */
     void precompute_part1(int cnode, int qnode) {
@@ -2263,24 +1433,25 @@ class SimStruct{
                 int w = subitem.first;
                 double pi_l_w = subitem.second;
                 if (qNodeMap[level][w] != 0) {
-                    // sample dw
-                    double dw;
-                    int hitCount = sampleD(w, 1);
-                    if (hitMap.find(w) == hitMap.end())
-                        hitMap[w] = 0;
-                    if (totalMap.find(w) == totalMap.end())
-                        totalMap[w] = 0;
-                    hitMap[w] += hitCount;
-                    totalMap[w]++;
-                    if (hitMap[w] < 0 || totalMap[w] < 0) {
-                        cout << "sample d : long overflow" << endl;
-                        exit(0);
+                    int total_sample_d = budgetMap[cnode];
+                    //cout << "totalMap[w] = " << totalMap[w] << " , total_sample_d * ppr[cnode][w] * ppr[qnode][w] = " << total_sample_d * ppr[cnode][w] * ppr[qnode][w] << endl;
+                    if (totalMap[w] < max(total_sample_d * ppr[cnode][w] * ppr[qnode][w], 1.0)) {
+                        for (int count = 0; count < max(total_sample_d * ppr[cnode][w] * ppr[qnode][w] - totalMap[w], 1.0); count++) {
+                            int hitCount = sampleD(w, 1);
+                            if (hitMap.find(w) == hitMap.end())
+                                hitMap[w] = 0;
+                            if (totalMap.find(w) == totalMap.end())
+                                totalMap[w] = 0;
+                            hitMap[w] += hitCount;
+                            totalMap[w]++;
+                        }
                     }
 
+                    double dw;
                     if (g.getInSize(w) == 0)
                         dw = 1;
                     else if (hitMap.find(w) != hitMap.end())
-                        dw = 1 - C_value / (double)g.getInSize(w) - (double)hitMap[w] / totalMap[w];
+                        dw = 1 - C_value / (double)g.getInSize(w) - hitMap[w] / totalMap[w];
                     else
                         dw = 1 - C_value / (double)g.getInSize(w);
 
@@ -2295,60 +1466,53 @@ class SimStruct{
     /* compute \sum{pi_l(cnode, w) * delta_l(qnode, w)} and \sum{delta_l(cnode, w) * pi_l(qnode, w)} */
     void precompute_part2(int cnode, int qnode, unordered_map<int, double> &partMap, int key) {
         /* compute part 2/3 of SimRank value */
-        partMap[key] = 0; // clear previous value
-        double simPart2 = 0;
-        int numSample = 10000; // argument
-        //            level           -> w  -> value
-        //unordered_map<int, unordered_map<int, double> > deltaCNodeMap; 
-        unordered_map<int, unordered_map<int, double> > rwMap;
-        for (auto& item : adaptResidueMap[cnode]) {
-            int level = item.first;
-            for (auto& subItem : item.second) {
-                int x = subItem.first; 
-                double rx = subItem.second;
-
-                int numRW = 0;
-                rwMap.clear(); // local
-                if (rsumMap[cnode] > 0) {
-                    numRW = (int)(numSample * rx / rsumMap[cnode]) + 1;
-                    for (int i = 0; i < numRW; i++) {
-                        int tempNode = x;
-                        int walk_level = 0;
-                        while (R.drand() < sqrtC && walk_level < log(1.0e-6) / log(C_value)) {
-                            int length = g.getInSize(tempNode);
-                            if (length == 0)
-                                break;
-                            int r = R.generateRandom() % length;
-                            x = g.getInVert(x, r);
-                            walk_level++;
-                        }
-                        if (rwMap[walk_level][tempNode] == 0)
-                            rwMap[walk_level][tempNode] = 1 / (double)numRW;
-                        else
-                            rwMap[walk_level][tempNode] += 1 / (double)numRW;
-                    }
-                }
+		double simPart2 = 0;
+        int numSample = max(min(budgetMap[cnode], budgetMap[qnode]) / 5000, 1000); // max(min(budgetMap[cnode], budgetMap[qnode]) / 500, 1000); // argument
+		unordered_map<int, unordered_map<int, double> > rwMap;
+		for (auto& item : adaptResidueMap[cnode]) {
+			int level = item.first;
+			for (auto& subItem : item.second) {
+				int x = subItem.first;
+				double rx = subItem.second;
+				rwMap.clear(); // local
+				int numRW = (int)(numSample * rx / rsumMap[cnode]) + 1;
+				for (int i = 0; i < numRW; i++) {
+					int tempNode = x;
+					int walk_level = 0;
+					while (R.drand() < sqrtC && walk_level < log(1.0e-6) / log(C_value)) {
+						int length = g.getInSize(tempNode);
+						if (length == 0)
+							break;
+						int r = R.generateRandom() % length;
+						tempNode = g.getInVert(tempNode, r);
+						walk_level++;
+					}
+					if (rwMap[walk_level][tempNode] == 0) {
+						rwMap[walk_level][tempNode] = 1 / (double)numRW;
+					}
+					else
+						rwMap[walk_level][tempNode] += 1 / (double)numRW;
+				}
                 for (auto& item : rwMap) {
-                    int walk_level = item.first;
+                    int l = item.first;
                     for (auto& subItem : item.second) {
                         int w = subItem.first;
                         double pi_x_w = subItem.second;
-                        if (adaptReserveMap[qnode][level + walk_level][w] != 0) {
-                            double dw;
 
-                            int hitCount = sampleD(w, 1);
-                            if (hitMap.find(w) == hitMap.end())
-                                hitMap[w] = 0;
-                            if (totalMap.find(w) == totalMap.end())
-                                totalMap[w] = 0;
-                            hitMap[w] += hitCount;
-                            totalMap[w]++;
-
-                            if (hitMap[w] < 0 || totalMap[w] < 0) {
-                                cout << "sample d : long overflow" << endl;
-                                exit(0);
+                        if (adaptReserveMap[qnode][level + l][w] != 0) {
+                            int total_sample_d = 100; // max(min(budgetMap[cnode], budgetMap[qnode]) / 500, 10000);
+                            if (totalMap[w] < max(total_sample_d * ppr[cnode][w] * ppr[qnode][w], 1.0)) {
+                                for (int count = 0; count < max(total_sample_d * ppr[cnode][w] * ppr[qnode][w] - totalMap[w], 1.0); count++) {
+                                    int hitCount = sampleD(w, 1);
+                                    if (hitMap.find(w) == hitMap.end())
+                                        hitMap[w] = 0;
+                                    if (totalMap.find(w) == totalMap.end())
+                                        totalMap[w] = 0;
+                                    hitMap[w] += hitCount;
+                                    totalMap[w]++;
+                                }
                             }
-
+                            double dw;
                             if (g.getInSize(w) == 0)
                                 dw = 1;
                             else if (hitMap.find(w) != hitMap.end())
@@ -2356,13 +1520,84 @@ class SimStruct{
                             else
                                 dw = 1 - C_value / (double)g.getInSize(w);
 
-                            simPart2 += rx * pi_x_w * dw * adaptReserveMap[qnode][level + walk_level][w] / (1 - sqrtC) / (1 - sqrtC);
+                            simPart2 += pi_x_w * rx * dw * adaptReserveMap[qnode][level + l][w] / (1 - sqrtC) / (1 - sqrtC);
                         }
                     }
                 }
-            }
-        }
-        partMap[key] = simPart2;
+			}
+		}
+		partMap[key] = simPart2;
+
+		
+		/*
+		if (nodeToAliasPos.find(cnode) != nodeToAliasPos.end() && adaptReserveMap.find(qnode) != adaptReserveMap.end()) {
+			double simPart2 = 0;
+			int numSample = 10000;
+			Alias& aliasNode = aliasMap[nodeToAliasPos[cnode]];
+			for (int sample = 0; sample < numSample; sample++) {
+				pair<int, int> nodePair = aliasNode.generateRandom(R);
+				int level_x = nodePair.first;
+				int node_x = nodePair.second;
+				while (R.drand() < sqrtC && level_x < 100) { //
+					int length = g.getInSize(node_x);
+					if (length > 0) {
+						int r = R.generateRandom() % length;
+						node_x = g.getInVert(node_x, r);
+						level_x++;
+					}
+					else {
+						break;
+					}
+				}
+				//TEST
+				if (globalMap2[level_x][node_x] == 0)
+					globalMap2[level_x][node_x] = rsumMap[cnode] / numSample;
+				else
+					globalMap2[level_x][node_x] += rsumMap[cnode] / numSample;
+
+				if (adaptReserveMap[qnode][level_x][node_x] != 0) {
+					double dx;
+					int hitCount = sampleD(node_x, 1);
+					if (hitMap.find(node_x) == hitMap.end())
+						hitMap[node_x] = 0;
+					if (totalMap.find(node_x) == totalMap.end())
+						totalMap[node_x] = 0;
+					hitMap[node_x] += hitCount;
+					totalMap[node_x]++;
+
+					if (hitMap[node_x] < 0 || totalMap[node_x] < 0) {
+						cout << "sample d : long overflow" << endl;
+						exit(0);
+					}
+
+					if (g.getInSize(node_x) == 0)
+						dx = 1;
+					else if (hitMap.find(node_x) != hitMap.end())
+						dx = 1 - C_value / (double)g.getInSize(node_x) - (double)hitMap[node_x] / totalMap[node_x];
+					else
+						dx = 1 - C_value / (double)g.getInSize(node_x);
+					simPart2 += rsumMap[cnode] * adaptReserveMap[qnode][level_x][node_x] * dx / (1 - sqrtC) / (1 - sqrtC);
+
+				}
+			}
+			simPart2 /= numSample;
+			partMap[key] = simPart2;
+		}
+		*/
+		//TEST
+		/*
+		cout << "=====================================TEST=====================================" << endl;
+		for (auto& item : globalMap2) {
+			int lvl = item.first;
+			cout << "lvl = " << lvl << " , (2)" << globalMap2[lvl].size() << " , (1)" << globalMap1[lvl].size() << endl;
+			//for (auto& subItem : item.second) {
+			//	int w = subItem.first;
+			//	double p = subItem.second;
+			//	cout << "\t w = " << w << " , p2 = " << p << " , p1 = " << globalMap1[lvl][w] << endl;
+			//}
+		}
+		cout << "==============================================================================" << endl;
+		*/
     }
 
     void sampleOneArm(int queryNode, int candNode, int batchSample) {
@@ -2370,7 +1605,7 @@ class SimStruct{
             cout << "adaptReserveMap does not contain queryNode / candNode" << endl;
             exit(0);
         }
-        cout << "invoke sampleOneArm : queryNode = " << queryNode << " , candNode = " << candNode << endl;
+        //cout << "invoke sampleOneArm : queryNode = " << queryNode << " , candNode = " << candNode << endl;
         double simPart1 = 0, simPart2 = 0, simPart3 = 0, simPart4 = 0;
         if (part1Map.find(candNode) != part1Map.end())
             simPart1 = part1Map[candNode];
@@ -2378,10 +1613,89 @@ class SimStruct{
             simPart2 = part2Map[candNode];
         if (part3Map.find(candNode) != part3Map.end())
             simPart3 = part3Map[candNode];
-        cout << "simPart1 = " << simPart1 << " , simPart2 = " << simPart2 << " , simPart3 = " << simPart3 << endl;
+        //cout << "simPart1 = " << simPart1 << " , simPart2 = " << simPart2 << " , simPart3 = " << simPart3 << endl;
 
         Alias& aliasQNode = aliasMap[nodeToAliasPos[queryNode]];
         Alias& aliasCNode = aliasMap[nodeToAliasPos[candNode]];
+        /*
+        for (int sample = 0; sample < batchSample / 10; sample++) {
+            pair<int, int> qNodePair = aliasQNode.generateRandom(R);
+            int level_x = qNodePair.first;
+            int node_x = qNodePair.second;
+            while (R.drand() < sqrtC && level_x < 100) { // 
+                int length = g.getInSize(node_x);
+                if (length > 0) {
+                    int r = R.generateRandom() % length;
+                    node_x = g.getInVert(node_x, r);
+                    level_x++;
+                }
+                else {
+                    break;
+                }
+            }
+            pair<int, int> cNodePair = aliasCNode.generateRandom(R);
+            int level_y = cNodePair.first;
+            int node_y = cNodePair.second;
+            while (R.drand() < sqrtC && level_y < 100) { // 
+                int length = g.getInSize(node_y);
+                if (length > 0) {
+                    int r = R.generateRandom() % length;
+                    node_y = g.getInVert(node_y, r);
+                    level_y++;
+                }
+                else {
+                    break;
+                }
+            }
+            if (adaptReserveMap[candNode][level_x][node_x] != 0) {
+                int total_sample_d = 1000 * 1000 * 100;
+                if (totalMap[node_x] < max(total_sample_d * ppr[candNode][node_x] * ppr[queryNode][node_x], 1.0)) {
+                    for (int count = 0; count < max(total_sample_d * ppr[candNode][node_x] * ppr[queryNode][node_x] - totalMap[node_x], 1.0); count++) {
+                        int hitCount = sampleD(node_x, 1);
+                        if (hitMap.find(node_x) == hitMap.end())
+                            hitMap[node_x] = 0;
+                        if (totalMap.find(node_x) == totalMap.end())
+                            totalMap[node_x] = 0;
+                        hitMap[node_x] += hitCount;
+                        totalMap[node_x]++;
+                    }
+                }
+                double dx;
+                if (g.getInSize(node_x) == 0)
+                    dx = 1;
+                else if (hitMap.find(node_x) != hitMap.end())
+                    dx = 1 - C_value / (double)g.getInSize(node_x) - (double)hitMap[node_x] / totalMap[node_x];
+                else
+                    dx = 1 - C_value / (double)g.getInSize(node_x);
+                simPart2 = rsumMap[queryNode] * adaptReserveMap[candNode][level_x][node_x] * dx / (1 - sqrtC) / (1 - sqrtC);
+            }
+            if (adaptReserveMap[queryNode][level_y][node_y] != 0) {
+                int total_sample_d = 1000 * 1000 * 100;
+                if (totalMap[node_y] < max(total_sample_d * ppr[candNode][node_y] * ppr[queryNode][node_y], 1.0)) {
+                    for (int count = 0; count < max(total_sample_d * ppr[candNode][node_y] * ppr[queryNode][node_y] - totalMap[node_y], 1.0); count++) {
+                        int hitCount = sampleD(node_y, 1);
+                        if (hitMap.find(node_y) == hitMap.end())
+                            hitMap[node_y] = 0;
+                        if (totalMap.find(node_y) == totalMap.end())
+                            totalMap[node_y] = 0;
+                        hitMap[node_y] += hitCount;
+                        totalMap[node_y]++;
+                    }
+                }
+                double dy;
+                if (g.getInSize(node_y) == 0)
+                    dy = 1;
+                else if (hitMap.find(node_y) != hitMap.end())
+                    dy = 1 - C_value / (double)g.getInSize(node_y) - (double)hitMap[node_y] / totalMap[node_y];
+                else
+                    dy = 1 - C_value / (double)g.getInSize(node_y);
+                simPart3 = rsumMap[candNode] * adaptReserveMap[queryNode][level_y][node_y] * dy / (1 - sqrtC) / (1 - sqrtC);
+            }
+            part2Map[candNode] += simPart2;
+            part3Map[candNode] += simPart3;
+            cntMap[candNode]++;
+        }
+        */
         for (int sample = 0; sample < batchSample; sample++) {            
             pair<int, int> qNodePair = aliasQNode.generateRandom(R);
             int level_x = qNodePair.first;
@@ -2397,7 +1711,6 @@ class SimStruct{
                     break;
                 }
             }
-            
             pair<int, int> cNodePair = aliasCNode.generateRandom(R);
             int level_y = cNodePair.first;
             int node_y = cNodePair.second;
@@ -2412,22 +1725,67 @@ class SimStruct{
                     break;
                 }
             }
-            if (level_x == level_y && node_x == node_y) {
-                double dx;
-
-                int hitCount = sampleD(node_x, 1);
-                if (hitMap.find(node_x) == hitMap.end())
-                    hitMap[node_x] = 0;
-                if (totalMap.find(node_x) == totalMap.end())
-                    totalMap[node_x] = 0;
-                hitMap[node_x] += hitCount;
-                totalMap[node_x]++;
-
-                if (hitMap[node_x] < 0 || totalMap[node_x] < 0) {
-                    cout << "sample d : long overflow" << endl;
-                    exit(0);
+            /*
+            if (adaptReserveMap[candNode][level_x][node_x] != 0) {
+                int total_sample_d = 1000 * 100;
+                if (totalMap[node_x] < max(total_sample_d * ppr[candNode][node_x] * ppr[queryNode][node_x], 1.0)) {
+                    for (int count = 0; count < max(total_sample_d * ppr[candNode][node_x] * ppr[queryNode][node_x] - totalMap[node_x], 1.0); count++) {
+                        int hitCount = sampleD(node_x, 1);
+                        if (hitMap.find(node_x) == hitMap.end())
+                            hitMap[node_x] = 0;
+                        if (totalMap.find(node_x) == totalMap.end())
+                            totalMap[node_x] = 0;
+                        hitMap[node_x] += hitCount;
+                        totalMap[node_x]++;
+                    }
                 }
-
+                double dx;
+                if (g.getInSize(node_x) == 0)
+                    dx = 1;
+                else if (hitMap.find(node_x) != hitMap.end())
+                    dx = 1 - C_value / (double)g.getInSize(node_x) - (double)hitMap[node_x] / totalMap[node_x];
+                else
+                    dx = 1 - C_value / (double)g.getInSize(node_x);
+                simPart2 = rsumMap[queryNode] * adaptReserveMap[candNode][level_x][node_x] * dx / (1 - sqrtC) / (1 - sqrtC);
+            }
+            if (adaptReserveMap[queryNode][level_y][node_y] != 0) {
+                int total_sample_d = 1000 * 100;
+                if (totalMap[node_y] < max(total_sample_d * ppr[candNode][node_y] * ppr[queryNode][node_y], 1.0)) {
+                    for (int count = 0; count < max(total_sample_d * ppr[candNode][node_y] * ppr[queryNode][node_y] - totalMap[node_y], 1.0); count++) {
+                        int hitCount = sampleD(node_y, 1);
+                        if (hitMap.find(node_y) == hitMap.end())
+                            hitMap[node_y] = 0;
+                        if (totalMap.find(node_y) == totalMap.end())
+                            totalMap[node_y] = 0;
+                        hitMap[node_y] += hitCount;
+                        totalMap[node_y]++;
+                    }
+                }
+                double dy;
+                if (g.getInSize(node_y) == 0)
+                    dy = 1;
+                else if (hitMap.find(node_y) != hitMap.end())
+                    dy = 1 - C_value / (double)g.getInSize(node_y) - (double)hitMap[node_y] / totalMap[node_y];
+                else
+                    dy = 1 - C_value / (double)g.getInSize(node_y);
+                simPart3 = rsumMap[candNode] * adaptReserveMap[queryNode][level_y][node_y] * dy / (1 - sqrtC) / (1 - sqrtC);
+            }
+            */
+            if (level_x == level_y && node_x == node_y) {
+                
+                int total_sample_d = 1000 * 10;
+                if (totalMap[node_x] < 1) {
+                    for (int count = 0; count < max(total_sample_d * ppr[candNode][node_x] * ppr[queryNode][node_x] - totalMap[node_x], 1.0); count++) {
+                        int hitCount = sampleD(node_x, 1);
+                        if (hitMap.find(node_x) == hitMap.end())
+                            hitMap[node_x] = 0;
+                        if (totalMap.find(node_x) == totalMap.end())
+                            totalMap[node_x] = 0;
+                        hitMap[node_x] += hitCount;
+                        totalMap[node_x]++;
+                    }
+                }
+                double dx;
                 if (g.getInSize(node_x) == 0)
                     dx = 1;
                 else if (hitMap.find(node_x) != hitMap.end())
@@ -2436,7 +1794,11 @@ class SimStruct{
                     dx = 1 - C_value / (double)g.getInSize(node_x);
                 simPart4 = rsumMap[queryNode] * rsumMap[candNode] * dx / (1 - sqrtC) / (1 - sqrtC);
             }
-            double simValue = simPart1 + simPart2 + simPart3 + simPart4;
+			double simValue = simPart1 + simPart2 + simPart3 + simPart4;
+            //double simValue = simPart1 + part2Map[candNode] / cntMap[candNode] + part3Map[candNode] / cntMap[candNode] + simPart4;
+			part4Map[candNode] += simPart4;
+            //simPart2 = 0; simPart3 = 0; 
+            simPart4 = 0; // clear the value            
             answer[candNode] += simValue;
             ans2[candNode] += simValue * simValue;
         } // end for
@@ -2446,19 +1808,36 @@ class SimStruct{
 
         Timer adapt_push_timer;
         adapt_push_timer.start();
-        if (cntMABSample[queryNode] >= 2 * budgetMap[queryNode]) {
-            cout << "queryNode = " << queryNode << " , cntMABSample[queryNode] = " << cntMABSample[queryNode] << " , budgetMap[queryNode] = " << budgetMap[queryNode] << endl;
-            adaptivePush(queryNode, cntMABSample[queryNode], queryNode);
-        }
-        if (cntMABSample[candNode] >= 2 * budgetMap[candNode]) {
-            cout << "candNode = " << candNode << " , cntMABSample[candNode] = " << cntMABSample[candNode] << " , budgetMap[candNode] = " << budgetMap[candNode] << endl;
-            adaptivePush(candNode, cntMABSample[candNode], queryNode);
-        }
+        
+        //if (cntMABSample[queryNode] >= budgetMap[queryNode] && budgetMap[queryNode] < 1e6) {
+        //    cout << "queryNode = " << queryNode << " , cntMABSample[queryNode] = " << cntMABSample[queryNode] << " , budgetMap[queryNode] = " << budgetMap[queryNode] << endl;
+        //    forwardPush(queryNode, budgetMap[queryNode] * 10, queryNode);
+        //}
+        //if (cntMABSample[candNode] >= max(budgetMap[candNode], 100000) && budgetMap[candNode] < 1e6) {
+        //    cout << "candNode = " << candNode << " , cntMABSample[candNode] = " << cntMABSample[candNode] << " , budgetMap[candNode] = " << budgetMap[candNode] << endl;
+		//	forwardPush(candNode, max(budgetMap[candNode], 100000) * 10, queryNode);
+        //}
+        
         adapt_push_timer.end();
         adaptPushTime += adapt_push_timer.timeCost;
     }
 
     vector <pair<int, double> > UGapE_with_adptive_push(int queryNode, int k) {
+        // TEST
+        // read ground truth
+        unordered_map<int, double> gtMap;
+        stringstream ss_gt_in;
+        ss_gt_in << "/home/liuyu/SimRace-liuyu/GroundTruth_ExactSim/" << filelabel << "/" << queryNode << "+0.0000001000.txt";
+        ifstream if_gt(ss_gt_in.str());
+        while (if_gt.good()) {
+            int node;
+            double gtScore;
+            if_gt >> node >> gtScore;
+            gtMap[node] = gtScore;
+        }
+        if_gt.close();
+        cout << "reading ground truth done" << endl;
+
         Timer ugape_timer;
         ugape_timer.start();
         double sortTime = 0, sampleTime = 0;
@@ -2467,19 +1846,24 @@ class SimStruct{
 
         // first should check if there exist exact k candidates
         int numCand = 0;
-        for (auto& item : sameInNbrMap)
-            numCand += item.second.size();
+        for (auto& item : sameInNbrMap2) {
+            for (auto& subItem : item.second)
+                numCand += subItem.second.size();
+        }
         cout << "numCand = " << numCand << endl;
         if (numCand <= k) {
             cout << "less than k candidates, skip sample-one-arm phase..." << endl;
             vector <pair<int, double> > ugapeAnswer;
-            for (auto& item : sameInNbrMap) {
-                int armId = item.first;
-                vector<int>& sameNbrVec = sameInNbrMap[armId];
-                for (int j = 0; j < sameNbrVec.size(); j++) {
-                    int tempNode = sameNbrVec[j];
-                    ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
-                    cout << "armId = " << tempNode << " , cntMABSample[armId] = " << cntMABSample[armId] << " , est = " << answer[armId] / cntMABSample[armId] << endl;
+            for (auto& item : sameInNbrMap2) {
+                unordered_map<int, vector<int>>& subMap = item.second;
+                for (auto& subItem : subMap) {
+                    int armId = subItem.first;
+                    vector<int>& sameNbrVec = subItem.second;
+                    for (int j = 0; j < sameNbrVec.size(); j++) {
+                        int tempNode = sameNbrVec[j];
+                        ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
+                        cout << "armId = " << tempNode << " , cntMABSample[armId] = " << cntMABSample[armId] << " , est = " << answer[armId] / cntMABSample[armId] << endl;
+                    }
                 }
             }
             sort(ugapeAnswer.begin(), ugapeAnswer.end(), maxScoreCmp);
@@ -2492,15 +1876,18 @@ class SimStruct{
             ofstream fout(ssout.str());
             fout.precision(15);
             for (int i = 0; i < ugapeAnswer.size(); i++) {
-                fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second << endl;
+				fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second << "\t" << part1Map[ugapeAnswer[i].first]
+					<< "\t" << part2Map[ugapeAnswer[i].first] // cntMABSample[ugapeAnswer[i].first]
+					<< "\t" << part3Map[ugapeAnswer[i].first] // cntMABSample[ugapeAnswer[i].first]
+					<< "\t" << part4Map[ugapeAnswer[i].first] / cntMABSample[ugapeAnswer[i].first] << endl;
             }
             cout << "ugape_timer.timeCost = " << ugape_timer.timeCost << " , sortTime = " << sortTime << " , sampleTime = " << sampleTime << " , adaptPushTime = " << adaptPushTime << endl;
-            cout << "adaptDeterQueryTime = " << adaptDeterQueryTime << " , adaptRandQueryTime = " << adaptRandQueryTime << endl;
+            //cout << "adaptDeterQueryTime = " << adaptDeterQueryTime << " , adaptRandQueryTime = " << adaptRandQueryTime << endl;
             return ugapeAnswer;
         }
 
         // second
-        double eps_min = 1e-3;
+        double eps_min = 1e-4;
         vector<pair<int, double> > B;
         unordered_map<int, double> UB, LB;
         vector<pair<int, double> > vecUB, vecLB;
@@ -2512,19 +1899,32 @@ class SimStruct{
         adaptResidueMap.clear();
         budgetMap.clear();
         aliasMap.clear();
+		part1Map.clear(); part2Map.clear(); part3Map.clear(); part4Map.clear(); cntMap.clear();
+
+		Timer adapt_push_timer;
+		adapt_push_timer.start();
 
         adaptResidueMap[queryNode][0][queryNode] = 1; // initialize
+        budgetMap[queryNode] = 1;
+		forwardPush(queryNode, max(budgetMap[queryNode], 10000), queryNode);
         for (int i = 0; i < curIdx; i++) {
             int armId = ansIdx[i];
-            budgetMap[armId] = 0;
+            budgetMap[armId] = 1;
             adaptResidueMap[armId][0][armId] = 1; // initialize
-            adaptivePush(armId, cntMABSample[armId], queryNode);
+			forwardPush(armId, max(budgetMap[armId], 10000), queryNode);
         }
+		adapt_push_timer.end();
+		adaptPushTime += adapt_push_timer.timeCost;
 
         int round = 0;
         int batch = 10;
         int batchSample = 10000; // max(10000, (int)(candList.size()));
         cout << "batchSample = " << batchSample << endl;
+
+		for (int i = 0; i < curIdx; i++) {
+			int armId = ansIdx[i];
+			sampleOneArm(queryNode, armId, 1000);
+		}
 
         while (true) {
             round++;
@@ -2549,7 +1949,7 @@ class SimStruct{
             for (int i = 0; i < vecUB.size(); i++) {
                 int armId = vecUB[i].first;
                 rank[armId] = accum_rank;
-                accum_rank += sameInNbrMap[armId].size();
+                accum_rank += sameInNbrMap2[g.getInSize(armId)][armId].size();
                 //cout << "armId = " << armId << " , rank[armId] = " << rank[armId] << endl;
                 if (rank[armId] <= k && accum_rank > k) {
                     kthUB = vecUB[i].second;
@@ -2578,7 +1978,7 @@ class SimStruct{
                 int armId = B[i].first;
                 rank[armId] = accum_rank;
                 //cout << "armId = " << armId << " , rank[armId] = " << rank[armId] << endl;
-                accum_rank += sameInNbrMap[armId].size();
+                accum_rank += sameInNbrMap2[g.getInSize(armId)][armId].size();
                 if (rank[armId] <= k && accum_rank > k)
                     kthB = B[i].second;
             }
@@ -2593,14 +1993,6 @@ class SimStruct{
             }
             sort(vecLB.begin(), vecLB.end(), minScoreCmp);
             sort(vecUB.begin(), vecUB.end(), maxScoreCmp);
-            //cout << "vecLB.size() = " << vecLB.size() << " , vecUB.size() = " << vecUB.size() << endl;
-            //cout << "vecLB contains:" << endl;
-            //for (int i = 0; i < vecLB.size(); i++)
-            //    cout << vecLB[i].first << " , " << endl;
-            //cout << "vecUB contains:" << endl;
-            //for (int i = 0; i < vecUB.size(); i++)
-            //    cout << vecUB[i].first << " , " << endl;
-
             sort_timer.end();
             sortTime += sort_timer.timeCost;
 
@@ -2608,24 +2000,25 @@ class SimStruct{
                 vector <pair<int, double> > ugapeAnswer;
                 for (int i = 0; i < vecLB.size(); i++) {
                     int armId = vecLB[i].first;
-                    vector<int>& sameNbrVec = sameInNbrMap[armId];
+                    vector<int>& sameNbrVec = sameInNbrMap2[g.getInSize(armId)][armId];
                     for (int j = 0; j < sameNbrVec.size(); j++) {
                         int tempNode = sameNbrVec[j];
                         ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
-                        cout << "armId = " << tempNode << " , cntMABSample[armId] = " << cntMABSample[armId] << " , est = " << answer[armId] / cntMABSample[armId] << endl;
+                        cout << "armId = " << tempNode << " , cntMABSample[armId] = " << cntMABSample[armId] 
+							 << " , est = " << answer[armId] / cntMABSample[armId] 
+							 << " , cb = " << ugapeCB(curIdx, answer[armId], ans2[armId], cntMABSample[armId], 1.0e-4, round) << endl;
+                    }
+                }
+                // TEST
+                for (int i = 0; i < vecUB.size(); i++) {
+                    int armId = vecUB[i].first;
+                    vector<int>& sameNbrVec = sameInNbrMap2[g.getInSize(armId)][armId];
+                    for (int j = 0; j < sameNbrVec.size(); j++) {
+                        int tempNode = sameNbrVec[j];
+                        ugapeAnswer.push_back(pair<int, double>(tempNode, answer[armId] / cntMABSample[armId]));
                     }
                 }
                 sort(ugapeAnswer.begin(), ugapeAnswer.end(), maxScoreCmp);
-                //for (int i = 0; i < candList.size(); i++)
-                   //delete aliasMap[i];
-
-                //clock_t te_ugape = clock();
-                //sampleTime = (te_ugape - tsSample) / (double)CLOCKS_PER_SEC;
-                //cout << "UGapE: " << (te_ugape - ts_ugape) / (double)CLOCKS_PER_SEC << endl;
-                //cout << "initTime = " << initTime << endl;
-                //cout << "sampleTime = " << sampleTime << endl;
-                //cout << "totalSample = " << totalSample << endl;
-                //cout << "sortTime = " << sortTime << endl;
                 ugape_timer.end();
                 avg_mab_time += ugape_timer.timeCost;
                 stringstream ssout;
@@ -2635,7 +2028,13 @@ class SimStruct{
                 ofstream fout(ssout.str());
                 fout.precision(15);
                 for (int i = 0; i < ugapeAnswer.size(); i++) {
-                    fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second << endl;
+                    fout << ugapeAnswer[i].first << "\t" << ugapeAnswer[i].second 
+                       // << "\t" << part1Map[ugapeAnswer[i].first] 
+						//<< "\t" << part2Map[ugapeAnswer[i].first] / cntMap[ugapeAnswer[i].first]
+						//<< "\t" << part3Map[ugapeAnswer[i].first] / cntMap[ugapeAnswer[i].first]
+						//<< "\t" << part4Map[ugapeAnswer[i].first] / cntMABSample[ugapeAnswer[i].first] 
+                        << "\t" << ugapeCB(curIdx, answer[ugapeAnswer[i].first], ans2[ugapeAnswer[i].first], cntMABSample[ugapeAnswer[i].first], 1.0e-4, round)
+                        << "\t" << ugapeAnswer[i].second - gtMap[ugapeAnswer[i].first] << "\t" << cntMABSample[ugapeAnswer[i].first] << endl;
                 }
                 cout << "ugape_timer.timeCost = " << ugape_timer.timeCost << " , sortTime = " << sortTime << " , sampleTime = " << sampleTime << " , adaptPushTime = " << adaptPushTime << endl;
                 cout << "adaptDeterQueryTime = " << adaptDeterQueryTime << " , adaptRandQueryTime = " << adaptRandQueryTime << endl;
@@ -2658,6 +2057,129 @@ class SimStruct{
             sampleTime += sample_timer.timeCost;
         }
     }
+
+	void forwardPush(int u, int budget, int qNode) {
+		cout << "forwardPush : node = " << u << " , prev_budget = " << budgetMap[u] << " , budget = " << budget << " , qNode = " << qNode << endl;
+		double cur_rmax = 1.0 / budget; // tunable
+		if (u == qNode)
+			cur_rmax = 1.0e-6;
+
+		adaptReserveMap[u].clear();
+		adaptResidueMap[u].clear(); 
+        ppr[u] = unordered_map<int, double>(); // clear
+		int numResidueItem = 0;
+		unordered_map<int, unordered_map<int, double> > answer;
+
+		residue[u] = 1;
+		vector<int> candidate_set;
+		candidate_set.push_back(u);
+		isInArray[u] = true;
+		vector<int> new_candidate_set;
+		int tempLevel = 0;
+
+		Timer fora_timer;
+		fora_timer.start();
+		vector<pair<pair<int, int>, double> > aliasP;
+		double rsum = 0;
+		while (candidate_set.size() > 0) {
+			for (int j = 0; j < candidate_set.size(); j++) {
+				isInArray[candidate_set[j]] = false;
+			}
+			int residue_count = 0;
+			for (int j = 0; j < candidate_set.size(); j++) {
+				int tempNode = candidate_set[j];
+				double tempR = residue[tempNode];
+				newReserve[tempNode] += (1 - sqrtC) * tempR;
+				int inSize = g.getInSize(tempNode);
+				for (int k = 0; k < inSize; k++) {
+					int newNode = g.getInVert(tempNode, k);
+					newResidue[newNode] += residue[tempNode] * sqrtC / (double)inSize;
+					if (U[1][newNode] == 0) {
+						U[0][residue_count++] = newNode;
+						U[1][newNode] = 1;
+					}
+					if (!isInArray[newNode] && newResidue[newNode] > cur_rmax * g.getInSize(newNode)) {
+						isInArray[newNode] = true;
+						new_candidate_set.push_back(newNode);
+					}
+				}
+				residue[tempNode] = 0;
+			}
+			for (int j = 0; j < candidate_set.size(); j++) {
+				int tempNode = candidate_set[j];
+				if (newReserve[tempNode] > 0) {
+					if (adaptReserveMap[u][tempLevel][tempNode] == 0)
+						adaptReserveMap[u][tempLevel][tempNode] = newReserve[tempNode];
+					else
+						adaptReserveMap[u][tempLevel][tempNode] += newReserve[tempNode];
+
+                    if(ppr[u].find(tempNode) == ppr[u].end())
+                        ppr[u][tempNode] = newReserve[tempNode];
+                    else
+                        ppr[u][tempNode] += newReserve[tempNode];
+				}
+				newReserve[tempNode] = 0;
+			}
+			for (int j = 0; j < residue_count; j++) {
+				if (g.getInSize(U[0][j]) > 0 && newResidue[U[0][j]] / g.getInSize(U[0][j]) <= cur_rmax) {
+					rsum += newResidue[U[0][j]];
+					aliasP.push_back(pair<pair<int, int>, double>(pair<int, int>(tempLevel + 1, U[0][j]), newResidue[U[0][j]]));
+					adaptResidueMap[u][tempLevel + 1][U[0][j]] = newResidue[U[0][j]]; //
+					numResidueItem++;
+				}
+				else {
+					residue[U[0][j]] = newResidue[U[0][j]];
+				}
+				newResidue[U[0][j]] = 0;
+				U[1][U[0][j]] = 0;
+			}
+			candidate_set = new_candidate_set;
+			new_candidate_set.clear();
+			tempLevel++;
+		}
+		fora_timer.end();
+		cout << "forward push : " << fora_timer.timeCost << "s" << endl;
+		cout << "rsum = " << rsum << endl;
+
+		// update budget
+		budgetMap[u] = budget;
+		if (nodeToAliasPos.find(u) == nodeToAliasPos.end()) {
+			int pos = aliasMap.size();
+			nodeToAliasPos[u] = pos;
+			aliasMap.push_back(Alias(aliasP)); // at position pos
+		}
+		else
+			aliasMap[nodeToAliasPos[u]] = Alias(aliasP);
+
+		rsumMap[u] = rsum;
+		cout << "rsumMap[node] = " << rsumMap[u] << " , cur_rmax = " << cur_rmax << endl;
+		cout << "numResidueItem = " << numResidueItem << endl;
+
+		// pre-compute some parts of the SimRank value
+		if (u != qNode) {
+            Timer deter_timer, rand_timer;
+            deter_timer.start();
+			precompute_part1(u, qNode);
+            deter_timer.end();
+            adaptDeterQueryTime += deter_timer.timeCost;
+            rand_timer.start();
+			precompute_part2(u, qNode, part2Map, u);
+			precompute_part2(qNode, u, part3Map, u);
+            rand_timer.end();
+            adaptRandQueryTime += rand_timer.timeCost;
+		}
+		//else { // query node
+			// for all candidates, precompute
+		//	for (int i = 0; i < curIdx; i++) {
+		//		int cnode = ansIdx[i];
+		//		precompute_part1(cnode, qNode);
+		//		precompute_part2(cnode, qNode, part2Map, cnode);
+		//		precompute_part2(qNode, cnode, part3Map, cnode);
+		//	}
+		//}
+	}
+
+    
 };
 
 

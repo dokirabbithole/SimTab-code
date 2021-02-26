@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 void usage() {
-    cerr << "./SimTab-Baseline" << endl
+    cerr << "./SimTab" << endl
 	 << "-d <dataset>" << endl
 	 << "-f <filelabel>" << endl
 	 << "-algo <algorithm>" << endl
@@ -122,18 +122,9 @@ int main(int argc, char **argv){
             cout << i << ": " << nodeId << endl;
             sim.prefilter(nodeId, k);
 			sim.outputCandidate(nodeId, k);			
-			stringstream ss_cand_path;
-			ss_cand_path << "candidates/" << filelabel << "/k=" << k << "/";
-			
-			sim.readCandidatesFromPrefilter(ss_cand_path.str(), nodeId);
-			sim.UGapE(nodeId, k); // baseline
-			
-			//sim.readCandidatesFromPrefilter2(ss_cand_path.str(), nodeId);
+			sim.readCandidatesFromPrefilter3(nodeId, k);
 			//sim.UGapE2(nodeId, k); // baseline
-			//sim.UGapE_with_adptive_push(nodeId, k);  
-
-			//sim.MC(nodeId, k);
-			
+			sim.UGapE_with_adptive_push(nodeId, k);  
         }
 		fquery.close();    
 		cout << "avg_pref_time: " << sim.avg_pref_time / (double) querynum << endl;
